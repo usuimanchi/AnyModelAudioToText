@@ -35,6 +35,8 @@ pub enum Provider {
     Azure,
     #[serde(rename = "las")]
     Las,
+    #[serde(rename = "ark")]
+    Ark,
 }
 
 impl Provider {
@@ -43,6 +45,7 @@ impl Provider {
             Provider::Volcengine => "volcengine",
             Provider::Azure => "azure",
             Provider::Las => "las",
+            Provider::Ark => "ark",
         }
     }
 
@@ -51,6 +54,7 @@ impl Provider {
             Provider::Volcengine => "火山引擎（豆包大模型 bigmodel）",
             Provider::Azure => "Azure Speech-to-Text",
             Provider::Las => "火山引擎 LAS 算子（las_asr_pro）",
+            Provider::Ark => "Ark 方舟（doubao-seed-2-0-lite）",
         }
     }
 }
@@ -146,6 +150,8 @@ pub struct Config {
     pub max_size_bytes: u64,
     pub prepare_only: bool,
     pub max_split_depth: u32,
+    /// 目标转换格式（ogg / mp3），由 provider 决定
+    pub target_audio_format: String,
 }
 
 // ---------------------------------------------------------------------------

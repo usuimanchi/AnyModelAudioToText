@@ -24,6 +24,7 @@
 //! ## 外部依赖
 //! - `ffmpeg` / `ffprobe`：音频探测、格式转换与切分
 
+mod ark;
 mod audio;
 mod azure;
 mod backend;
@@ -59,7 +60,7 @@ use crate::types::*;
 struct Cli {
     // ---- 提供商选择 ----
     /// 语音转文本提供商：volcengine（默认）/ las / azure
-    #[arg(long, default_value = "volcengine", help = "提供商: volcengine | las | azure")]
+    #[arg(long, default_value = "volcengine", help = "提供商: volcengine | las | ark | azure")]
     provider: String,
 
     // ---- 火山引擎认证 ----
@@ -314,6 +315,9 @@ async fn main() -> Result<()> {
         Provider::Las => {
             run_pipeline::<las::LasBackend>(&client, &mut config, &inputs).await
         }
+        Provider::Ark => {
+            run_pipeline::<ark::ArkBackend>(&client, &mut config, &inputs).await
+        }
         Provider::Azure => {
             run_pipeline::<azure::AzureBackend>(&client, &mut config, &inputs).await
         }
@@ -382,6 +386,16 @@ async fn run_pipeline<B: TranscriptionBackend>(
                                     // 优先使用 tos:// 内网 URL（LAS 和 bigmodel 都支持）
                                     chunk.submission_url = Some(result.tos_url.clone());
                                     println!("   │  ✅ TOS URL: {}", result.tos_url);
+                                    // bigmodel 旧 API 需要 HTTPS，生成预签名 URL 备用
+                                    if config.provider == Provider::Volcengine || config.provider == Provider::Ark {
+                                        match uploader.presigned_url(&remote_key, 86400).await {
+                                            Ok(ps_url) => {
+                                                chunk.submission_url = Some(ps_url);
+                                                println!("   │  🔗 预签名 URL (HTTPS)");
+                                            }
+                                            Err(e) => println!("   │  ⚠️  预签名失败: {e}"),
+                                        }
+                                    }
                                 }
                                 Err(e) => {
                                     println!("   │  ⚠️  TOS 上传失败: {e}");
@@ -406,6 +420,33 @@ async fn run_pipeline<B: TranscriptionBackend>(
                 "   │  [{i}] {dur}  {sz}  格式={} 编码={}  URL={url_info}",
                 c.format, c.codec
             );
+        }
+
+        // 2.6) bigmodel 旧 API 需要 HTTPS，tos:// → 预签名 URL
+        if config.provider == Provider::Volcengine || config.provider == Provider::Ark {
+            if let Some(ref tos_ak) = config.tos_ak {
+                if !tos_ak.is_empty() {
+                    if let Ok(uploader) = tos::create_tos_uploader(
+                        tos_ak, config.tos_sk.as_deref().unwrap_or(""),
+                        &config.tos_region, &config.tos_endpoint, &config.tos_bucket,
+                    ) {
+                        for chunk in &mut prepared_chunks {
+                            if let Some(ref url) = chunk.submission_url {
+                                if url.starts_with("tos://") {
+                                    let key = url.strip_prefix(&format!("tos://{}/", config.tos_bucket)).unwrap_or("");
+                                    if !key.is_empty() {
+                                        println!("   🔗 生成预签名 URL: {key}");
+                                        match uploader.presigned_url(key, 86400).await {
+                                            Ok(ps) => { println!("   🔗 预签名: {ps}"); chunk.submission_url = Some(ps); }
+                                            Err(e) => println!("   ⚠️  预签名失败: {e}"),
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // 3) 筛选可提交片段
@@ -530,6 +571,7 @@ async fn build_config(cli: Cli) -> Result<Config> {
     let provider = match cli.provider.as_str() {
         "azure" | "Azure" => Provider::Azure,
         "las" | "LAS" | "las_asr_pro" => Provider::Las,
+        "ark" | "Ark" | "ARK" => Provider::Ark,
         "volcengine" | "volc" | "" | _ => Provider::Volcengine,
     };
 
@@ -558,8 +600,9 @@ async fn build_config(cli: Cli) -> Result<Config> {
                 }
             };
             (az_key.clone(), Some(az_key), Some(az_region))
-        } else if provider == Provider::Las {
-            // LAS 认证（Bearer Token）
+        } else if provider == Provider::Las || provider == Provider::Ark {
+            // LAS / Ark 认证（Bearer Token）
+            let prompt = if provider == Provider::Ark { "请输入 Ark API Key" } else { "请输入 LAS API Key" };
             let key = match cli.api_key {
                 Some(ref v) if !v.trim().is_empty() => v.clone(),
                 _ => {
@@ -722,5 +765,6 @@ async fn build_config(cli: Cli) -> Result<Config> {
         max_size_bytes,
         prepare_only: cli.prepare_only,
         max_split_depth: cli.max_split_depth,
+        target_audio_format: if provider == Provider::Ark { "mp3".into() } else { "ogg".into() },
     })
 }

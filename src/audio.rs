@@ -131,13 +131,20 @@ pub async fn prepare_audio(
     // 报告不合规项并处理
     if !format_ok {
         println!("   ⚠️  格式不支持: {}（支持: {:?}）", meta.format_name, SUPPORTED_FORMATS);
-        println!("   🔄 正在转换为 OGG...");
+        let ext = &cfg.target_audio_format;
+        println!("   🔄 正在转换为 {}...", ext.to_uppercase());
         let dst = cfg.output_dir
             .join("prepared")
-            .join(format!("{}_converted.ogg", file_stem(&input.source_path)));
-        convert_to_ogg(&input.source_path, &dst, &meta).await?;
+            .join(format!("{}_converted.{}", file_stem(&input.source_path), ext));
+        if ext == "mp3" {
+            convert_to_mp3(&input.source_path, &dst, &meta).await?;
+        } else {
+            convert_to_ogg(&input.source_path, &dst, &meta).await?;
+        }
 
         let converted_meta = probe_audio(&dst).await?;
+        let fmt = ext.to_string();
+        let codec = if ext == "mp3" { "mp3" } else { "opus" };
         println!("   ✅ 转换完成: {}  {}  {}",
                  format_duration(converted_meta.duration_secs),
                  format_size(converted_meta.size_bytes),
@@ -152,8 +159,8 @@ pub async fn prepare_audio(
 
         return Ok(vec![PreparedChunk {
             path: dst,
-            format: "ogg".to_string(),
-            codec: "opus".to_string(),
+            format: ext.to_string(),
+            codec: if ext == "mp3" { "mp3".into() } else { "opus".into() },
             sample_rate: converted_meta.sample_rate,
             duration_secs: converted_meta.duration_secs,
             size_bytes: converted_meta.size_bytes,
@@ -404,6 +411,26 @@ pub fn format_size(bytes: u64) -> String {
         unit_idx += 1;
     }
     format!("{:.1} {}", size, UNITS[unit_idx])
+}
+
+pub async fn convert_to_mp3(src: &Path, dst: &Path, meta: &ProbeMeta) -> Result<()> {
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    // MP3 @ 64kbps mono, good balance for speech
+    let status = Command::new("ffmpeg")
+        .arg("-y").arg("-i").arg(src)
+        .arg("-ac").arg("1")
+        .arg("-ar").arg("16000")
+        .arg("-c:a").arg("libmp3lame")
+        .arg("-b:a").arg("64k")
+        .arg(dst)
+        .status()
+        .with_context(|| "执行 ffmpeg 转换 MP3 失败")?;
+    if !status.success() {
+        return Err(anyhow!("转换为 MP3 失败：ffmpeg 返回非零退出码"));
+    }
+    Ok(())
 }
 
 /// 找到最接近的 Opus 有效采样率（8000 / 12000 / 16000 / 24000 / 48000）

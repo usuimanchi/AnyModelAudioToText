@@ -12,6 +12,8 @@ use std::time::Duration;
 use ve_tos_rust_sdk::asynchronous::object::ObjectAPI;
 use ve_tos_rust_sdk::asynchronous::tos;
 use ve_tos_rust_sdk::asynchronous::tos::AsyncRuntime;
+use ve_tos_rust_sdk::auth::{PreSignedURLInput, SignerAPI};
+use ve_tos_rust_sdk::enumeration::HttpMethodType;
 use ve_tos_rust_sdk::object::PutObjectFromFileInput;
 
 use async_trait::async_trait;
@@ -115,6 +117,17 @@ impl<C: tos::TosClient> TosUploader<C> {
                 self.bucket, self.endpoint, remote_key
             ),
         })
+    }
+
+    /// 生成预签名下载 URL（有效期默认 24h，供 bigmodel 旧 API 使用）
+    pub async fn presigned_url(&self, remote_key: &str, expire_secs: u32) -> Result<String> {
+        let mut input = PreSignedURLInput::new_with_key(&self.bucket, remote_key);
+        input.set_http_method(HttpMethodType::HttpMethodGet);
+        input.set_expires(expire_secs as i64);
+        let output = self.client.pre_signed_url(&input).await.map_err(|e| {
+            anyhow!("生成预签名 URL 失败: {e}")
+        })?;
+        Ok(output.signed_url().to_string())
     }
 }
 
