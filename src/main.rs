@@ -127,7 +127,7 @@ struct Cli {
     language: Option<String>,
 
     /// 是否开启说话人分离（Azure: diarization）
-    #[arg(long, default_value_t = false, help = "开启说话人分离")]
+    #[arg(long, default_value_t = true, help = "开启说话人分离")]
     enable_speaker_info: bool,
 
     /// 是否开启文本规范化 ITN（仅火山引擎）
@@ -139,7 +139,7 @@ struct Cli {
     enable_punc: bool,
 
     /// 是否开启语义顺滑 DDC（仅火山引擎）
-    #[arg(long, default_value_t = false, help = "开启 DDC 语义顺滑")]
+    #[arg(long, default_value_t = true, help = "开启 DDC 语义顺滑")]
     enable_ddc: bool,
 
     /// 是否开启自动语种识别（仅火山引擎；Azure 通过 candidate-locales 控制）
@@ -154,7 +154,7 @@ struct Cli {
     /// 强制判停时间（毫秒），范围 300-5000。
     /// 设置后按静音时长分句（VAD），替代默认的语义分句。
     /// 敏感场景可配 500 或更小，普通场景建议 800-1000。
-    #[arg(long, help = "火山引擎: 强制判停时间 300-5000ms")]
+    #[arg(long, default_value = "800", help = "火山引擎: 强制判停时间 300-5000ms")]
     end_window_size: Option<u32>,
 
     /// 自学习平台热词词表名称，参考 https://www.volcengine.com/docs/6561/155738
@@ -187,7 +187,7 @@ struct Cli {
     model_version: Option<String>,
 
     /// 是否开启降噪（LAS）
-    #[arg(long, default_value_t = false, help = "LAS: 开启降噪")]
+    #[arg(long, default_value_t = true, help = "LAS: 开启降噪")]
     enable_denoise: bool,
 
     /// 是否开启多语种识别（LAS，默认 true，支持 99 种语言）
