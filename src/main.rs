@@ -179,7 +179,7 @@ struct Cli {
     las_region: String,
 
     /// LAS 算子版本：v1（默认）或 v2
-    #[arg(long, default_value = "v2", help = "LAS: 算子版本 v1|v2（v2=Seed-ASR 2.0, 1.6元/h）")]
+    #[arg(long, default_value = "v2", help = "LAS: v2(Seed-ASR 2.0,1.6元/h) 失败自动回退v1")]
     operator_version: String,
 
     /// LAS 模型版本。bigasr: "310"(默认) / "400"(优化版)；seedasr 请勿传此参数
@@ -282,7 +282,7 @@ struct Cli {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
     let cli_inputs = cli.inputs.clone();
-    let config = build_config(cli).await?;
+    let mut config = build_config(cli).await?;
 
     // 确保输出目录存在
     fs::create_dir_all(&config.output_dir)?;
@@ -309,13 +309,13 @@ async fn main() -> Result<()> {
     // 根据提供商分发
     match config.provider {
         Provider::Volcengine => {
-            run_pipeline::<volcengine::VolcengineBackend>(&client, &config, &inputs).await
+            run_pipeline::<volcengine::VolcengineBackend>(&client, &mut config, &inputs).await
         }
         Provider::Las => {
-            run_pipeline::<las::LasBackend>(&client, &config, &inputs).await
+            run_pipeline::<las::LasBackend>(&client, &mut config, &inputs).await
         }
         Provider::Azure => {
-            run_pipeline::<azure::AzureBackend>(&client, &config, &inputs).await
+            run_pipeline::<azure::AzureBackend>(&client, &mut config, &inputs).await
         }
     }
 }
@@ -326,7 +326,7 @@ async fn main() -> Result<()> {
 
 async fn run_pipeline<B: TranscriptionBackend>(
     client: &reqwest::Client,
-    config: &Config,
+    config: &mut Config,
     inputs: &[String],
 ) -> Result<()> {
     println!("\n🎙️  提供商: {}", B::provider_name());
@@ -338,6 +338,15 @@ async fn run_pipeline<B: TranscriptionBackend>(
     for input_str in inputs {
         println!("\n{}", "═".repeat(60));
         println!("📥  处理输入: {input_str}");
+
+        // 0) 本地文件 → 输出到源文件所在目录
+        let p = std::path::PathBuf::from(input_str);
+        if p.exists() && config.output_dir == std::path::PathBuf::from(DEFAULT_OUTPUT_DIR) {
+            if let Some(parent) = p.parent() {
+                config.output_dir = parent.to_path_buf();
+                println!("   📂 输出目录: {}", config.output_dir.display());
+            }
+        }
 
         // 1) 解析输入
         let audio_input = input::resolve_input(input_str, &config.output_dir).await?;

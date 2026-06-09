@@ -207,109 +207,34 @@ impl TranscriptionBackend for LasBackend {
         config: &Config,
         chunk: &PreparedChunk,
     ) -> Result<JobHandle> {
-        let file_url = chunk
-            .submission_url
-            .as_ref()
-            .ok_or_else(|| anyhow!("LAS: 片段 {} 没有提交 URL", chunk.path.display()))?;
-
-        let region = &config.las_region;
-
-        // ---- 构建 request ----
-        let las_request = LasRequest {
-            model_name: "bigmodel".to_string(),
-            model_version: config.model_version.clone(),
-            language: config.language.clone(),
-            enable_itn: bool_or_none(config.enable_itn, true),
-            enable_punc: bool_or_none(config.enable_punc, true),
-            enable_ddc: bool_or_none(config.enable_ddc, false),
-            enable_speaker_info: bool_or_none(config.enable_speaker_info, false),
-            enable_channel_split: bool_or_none(config.enable_channel_split, false),
-            show_utterances: bool_or_none(config.show_utterances, false),
-            show_speech_rate: bool_or_none(config.show_speech_rate, false),
-            show_volume: bool_or_none(config.show_volume, false),
-            enable_lid: bool_or_none(config.enable_lid, false),
-            enable_emotion_detection: bool_or_none(config.enable_emotion_detection, false),
-            enable_gender_detection: bool_or_none(config.enable_gender_detection, false),
-            enable_auto_lang: bool_or_none(config.enable_auto_lang, true),
-            enable_denoise: bool_or_none(config.enable_denoise, false),
-            enable_multi_language: bool_or_none(config.enable_multi_language, true),
-            enable_poi_fc: bool_or_none(config.enable_poi_fc, false),
-            enable_music_fc: bool_or_none(config.enable_music_fc, false),
-            vad_segment: if config.enable_speaker_info { Some(true) } else { None },
-            end_window_size: config.end_window_size,
-            sensitive_words_filter: config.sensitive_words_filter.clone(),
-            corpus: build_las_corpus(config),
+        // V2 优先，Operator.InvalidId 时回退 V1
+        let versions_to_try: Vec<&str> = if config.operator_version == "v2" {
+            vec!["v2", "v1"]
+        } else {
+            vec![config.operator_version.as_str()]
         };
 
-        let body = LasSubmitRequest {
-            operator_id: "las_asr_pro".to_string(),
-            operator_version: config.operator_version.clone(),
-            data: LasSubmitData {
-                user: Some(LasUser {
-                    uid: "rust-client".to_string(),
-                }),
-                audio: LasAudio {
-                    url: file_url.to_string(),
-                    format: chunk.format.clone(),
-                    codec: if chunk.codec == "raw" && chunk.format == "raw" {
-                        None
-                    } else {
-                        Some(chunk.codec.clone())
-                    },
-                    rate: Some(chunk.sample_rate),
-                    bits: Some(16),
-                    channel: Some(1),
-                    language: config.language.clone(),
-                },
-                resource: Some(config.resource_id.clone()),
-                request: las_request,
-            },
-        };
-
-        let resp = client
-            .post(&las_submit_url(region))
-            .header(
-                "Authorization",
-                format!("Bearer {}", &config.api_key),
-            )
-            .header(CONTENT_TYPE, "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("LAS 提交任务失败")?;
-
-        if !resp.status().is_success() {
-            let http_status = resp.status();
-            let err_body = resp.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "LAS 提交失败 HTTP {}: {}",
-                http_status,
-                &err_body[..err_body.len().min(500)]
-            ));
+        let mut last_error = None;
+        for &ver in &versions_to_try {
+            match do_submit(client, config, chunk, ver).await {
+                Ok(handle) => {
+                    if ver != config.operator_version {
+                        println!("   ⚠️  v2 不可用，已自动回退 v1");
+                    }
+                    return Ok(handle);
+                }
+                Err(e) => {
+                    let err_msg = format!("{e}");
+                    if err_msg.contains("InvalidId") && ver == "v2" {
+                        println!("   ⚠️  v2 不被支持，尝试 v1...");
+                        last_error = Some(e);
+                        continue;
+                    }
+                    return Err(e);
+                }
+            }
         }
-
-        let submit_resp: LasSubmitResponse = resp
-            .json()
-            .await
-            .context("解析 LAS 提交响应失败")?;
-
-        let task_id = submit_resp
-            .metadata
-            .task_id
-            .ok_or_else(|| {
-                anyhow!(
-                    "LAS 提交响应中无 task_id: error_msg={:?}",
-                    submit_resp.metadata.error_msg
-                )
-            })?;
-
-        println!("   ✅ LAS 任务已提交  task_id={}", &task_id[..16.min(task_id.len())]);
-
-        Ok(JobHandle {
-            id: task_id,
-            query_url: None,
-            provider: Provider::Las,
-        })
+        Err(last_error.unwrap_or_else(|| anyhow!("LAS 提交失败")))
     }
 
     async fn wait_for_completion(
@@ -513,6 +438,82 @@ fn build_las_corpus(config: &Config) -> Option<LasCorpus> {
 }
 
 /// 从 utterances 构建 SRT 字幕
+async fn do_submit(
+    client: &Client,
+    config: &Config,
+    chunk: &PreparedChunk,
+    operator_version: &str,
+) -> Result<JobHandle> {
+    let file_url = chunk.submission_url.as_ref()
+        .ok_or_else(|| anyhow!("LAS: 片段 {} 没有提交 URL", chunk.path.display()))?;
+    let region = &config.las_region;
+
+    let las_request = LasRequest {
+        model_name: "bigmodel".to_string(),
+        model_version: config.model_version.clone(),
+        language: config.language.clone(),
+        enable_itn: bool_or_none(config.enable_itn, true),
+        enable_punc: bool_or_none(config.enable_punc, true),
+        enable_ddc: bool_or_none(config.enable_ddc, false),
+        enable_speaker_info: bool_or_none(config.enable_speaker_info, false),
+        enable_channel_split: bool_or_none(config.enable_channel_split, false),
+        show_utterances: bool_or_none(config.show_utterances, false),
+        show_speech_rate: bool_or_none(config.show_speech_rate, false),
+        show_volume: bool_or_none(config.show_volume, false),
+        enable_lid: bool_or_none(config.enable_lid, false),
+        enable_emotion_detection: bool_or_none(config.enable_emotion_detection, false),
+        enable_gender_detection: bool_or_none(config.enable_gender_detection, false),
+        enable_auto_lang: bool_or_none(config.enable_auto_lang, true),
+        enable_denoise: bool_or_none(config.enable_denoise, false),
+        enable_multi_language: bool_or_none(config.enable_multi_language, true),
+        enable_poi_fc: bool_or_none(config.enable_poi_fc, false),
+        enable_music_fc: bool_or_none(config.enable_music_fc, false),
+        vad_segment: if config.enable_speaker_info { Some(true) } else { None },
+        end_window_size: config.end_window_size,
+        sensitive_words_filter: config.sensitive_words_filter.clone(),
+        corpus: build_las_corpus(config),
+    };
+
+    let body = LasSubmitRequest {
+        operator_id: "las_asr_pro".to_string(),
+        operator_version: operator_version.to_string(),
+        data: LasSubmitData {
+            user: Some(LasUser { uid: "rust-client".to_string() }),
+            audio: LasAudio {
+                url: file_url.to_string(),
+                format: chunk.format.clone(),
+                codec: if chunk.codec == "raw" && chunk.format == "raw" { None } else { Some(chunk.codec.clone()) },
+                rate: Some(chunk.sample_rate),
+                bits: Some(16),
+                channel: Some(1),
+                language: config.language.clone(),
+            },
+            resource: Some(config.resource_id.clone()),
+            request: las_request,
+        },
+    };
+
+    let resp = client.post(&las_submit_url(region))
+        .header("Authorization", format!("Bearer {}", &config.api_key))
+        .header(CONTENT_TYPE, "application/json")
+        .json(&body)
+        .send().await
+        .context("LAS 提交任务失败")?;
+
+    if !resp.status().is_success() {
+        let http_status = resp.status();
+        let err_body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("LAS 提交失败 HTTP {}: {}", http_status, &err_body[..err_body.len().min(500)]));
+    }
+
+    let submit_resp: LasSubmitResponse = resp.json().await.context("解析 LAS 提交响应失败")?;
+    let task_id = submit_resp.metadata.task_id
+        .ok_or_else(|| anyhow!("LAS 提交响应中无 task_id: error_msg={:?}", submit_resp.metadata.error_msg))?;
+
+    println!("   ✅ LAS 任务已提交  task_id={}", &task_id[..16.min(task_id.len())]);
+    Ok(JobHandle { id: task_id, query_url: None, provider: Provider::Las })
+}
+
 fn build_srt(utterances: &[Value]) -> String {
     let mut srt = String::new();
     for (i, u) in utterances.iter().enumerate() {
