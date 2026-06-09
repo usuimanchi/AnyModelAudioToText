@@ -1,0 +1,967 @@
+<span id="0d35e679"></span>
+# **算子介绍**
+<span id="f50ce8e4"></span>
+## 描述
+LAS语音转文字(Doubao-录音文件识别)增强版算子基于豆包录音文件识别大模型，能够将输入音频/视频文件中的语音，转写为文本输出。支持多种音/视频格式、多语种、音频降噪及大文件处理，适用于内容质检审核、音视频字幕生成、语音搜索、课堂内容分析等场景。
+<span id="62d75f31"></span>
+## 使用限制
+
+* 暂只支持单个语音文件传入
+* 扩展支持的其他语种(豆包语音支持的13个语种之外)，仅支持录音转写能力，暂不支持自动标点、语义顺滑、说话人识别、数字规整ITN、热词纠错、多模态视觉识别等功能。
+* 目前支持的音频格式为 raw, wav, mp3, ogg。
+* 当前系统仅对以下目标语种开放完整能力支持：
+   * 英语（en）、日语（ja）、印尼语（id）、西班牙语（es）、葡萄牙语（pt）、德语（de）、法语（fr）、韩语（ko）、菲律宾语（fil）、马来语（ms）、泰语（th）、阿拉伯语（ar）。
+   * 若目标语种不在上述列表中，则仅支持基础转录功能，暂未开放说话人分离、情感识别等高级能力。
+
+<span id="5690619d"></span>
+## 核心功能
+
+* 多格式音频/视频输入识别：
+   * 除音频外，新增支持视频文件输入，las算子可自动提取视频音轨进行识别。
+   * 除raw/wav/mp3/ogg外，扩展支持mp4/mov/mkv/flac等容器格式。
+   * las算子对于输入的音视频文件无文件大小/时长限制。
+   * 除公网https url访问外，也支持tos内网路径访问(tos://bucket-name/路径名/文件名)。
+* 音频前处理增强，提升模型效果：
+   * 内置音频降噪模块，可有效降低背景噪声对识别的影响，提升录音文件转写的准确率。
+* 多语种支持：
+   * 可自动识别语种或按用户指定语言进行识别。
+   * 扩充识别语种至 99 种，满足多语种、多区域的音频数据处理需求。
+
+<span id="85736531"></span>
+## 应用场景
+
+* 内容审核质检：将录音识别为文字，通过质检规则对文本进行分析，及时发现违规内容并干预处理；或对内容进行监控分析，发掘潜在商机。
+* 音视频字幕：支持自动将音/视频中的语音、歌词识别转换为文本，一键生成与音视频对应的字幕内容。适用于视频剪辑、视频观看、视频会议等多个场景。
+* 课堂内容分析：将课堂录音文件进行识别，通过文字还原课堂场景，分析教学内容，提升教学质量。
+* 会议访谈转写：将会议、访谈音频异步识别为文字，自动切分有语音部分识别，降本增效；同时自动分段，有效提升会议内容记录效率。
+
+<span id="ed5b4500"></span>
+# 计费说明
+* 计费标准
+   
+   | | | \
+   |<div style="width:200px">细分项</div> |<div style="width:720px">计费标准说明</div> |
+   |---|---|
+   | | | \
+   |计费项 |基于**输入音频的时长**统计用量进行计费。 |
+   | | | \
+   |计费类型 |按量计费，单位：`元/小时`，按实际的计费用量每小时出账。 |
+   | | | \
+   |单价 |与选择使用的模型有关。 |
+
+* 计费详情
+   计费公式：`总费用 =  单价 * 用量 `
+   
+   | | | \
+   |<div style="width:200px">细分场景</div> |<div style="width:720px">单价</div> |
+   |---|---|
+   | | | \
+   |*  模型：Seed-ASR 2.0 增强版 |1.6 元/小时 |
+   | | | \
+   |*  模型：Seed-ASR 1.0 增强版 |4.6 元/小时 |
+
+
+
+
+<span id="54cc2913"></span>
+# 注意与前提
+
+| | | \
+|细分项 |注意与前提 |
+|---|---|
+| | | \
+|开通 LAS |* 如果您是一个全新的火山引擎用户，此前未开通过 LAS 产品，您可先开通 LAS，不使用 LAS 的计费功能仅开通 LAS 产品不会产生费用。开通操作请参见[准备工作](/docs/6492/1264537)。 |\
+| |* 开通完成后可查看算子介绍文档，了解算子能力、上手引导等，详情可参见：[LAS 智能数据处理算子](/docs/6492/1798368)。 |
+| | | \
+|费用 |调用算子前，您需先了解使用算子时的模型调用费用，详情请参见[大模型调用计费](https://www.volcengine.com/docs/6492/1544808)。 |
+| | | \
+|鉴权（API Key） |调用算子前，您需要先生成算子调用的API Key，并建议将API Key配置为环境变量，便于更安全地调用算子，详情请参见[获取 API Key 并配置](/docs/6492/2191994)。 |
+| | | \
+|BaseURL |调用算子前，您需要先根据您当前使用的LAS服务所在地域，了解算子调用的BaseURL，用于配置算子调用路径参数取值。 |\
+| |详情请参见[获取 Base URL](/docs/6492/2191993)，下文中的调用示例仅作为参考，实际调用时需替换为您对应地域的路径取值。 |
+
+
+
+<span id="7c9c8bd4"></span>
+# 在线体验
+LAS 为您提供了“在线体验”的能力，并为您提供了一定的免费体验额度，您无需任何配置，即可在在线体验 LAS 算子的数据处理效果。
+:::warning
+当前算子在线体验可免费解析 5 分钟的音频文件，超出部分会依据算子的计费项进行计费，各算子的计费项及计费逻辑请参见[大模型调用计费](/docs/6492/1544808)。
+:::
+
+<div style="display: flex;">
+<div style="flex-shrink: 0;width: calc((100% - 16px) * 0.5);">
+
+<div style="text-align: center">在线体验入口</div>
+
+
+---
+
+
+登录并进入 [LAS  控制台](https://console.volcengine.com/las/region:las+cn-beijing/next/home) 后，查找到当前算子卡片，鼠标悬浮于算子卡片上，单击“在线体验”按钮。
+![Image](https://p9-arcosite.byteimg.com/tos-cn-i-goo7wpa0wc/5f455b2f200b4d13810e58c93db434c7~tplv-goo7wpa0wc-image.image =1574x)
+
+
+</div>
+<div style="flex-shrink: 0;width: calc((100% - 16px) * 0.5);margin-left: 16px;">
+
+<div style="text-align: center">在线体验操作演示</div>
+
+
+---
+
+
+<BytedReactXgplayer config={{ url: 'https://p9-arcosite.byteimg.com/tos-cn-i-goo7wpa0wc/464ebd452793471fb58c165fc922824c~tplv-goo7wpa0wc-image.image', poster: 'https://p9-arcosite.byteimg.com/tos-cn-i-goo7wpa0wc/464ebd452793471fb58c165fc922824c~tplv-goo7wpa0wc-video-poster.jpeg' }} ></BytedReactXgplayer>
+
+* LAS 为您提供了多个示例音频文件，您也可以删除示例文件，手动上传。
+* 在线体验时，可灵活设置算子的处理参数。
+
+
+</div>
+</div>
+
+<span id="bdaf2dea"></span>
+# Rest API 调用
+<span id="5f8a7ef4"></span>
+## 使用说明
+
+* 语音转文字(Doubao-录音文件识别)增强版算子调用为异步接口，处理流程分为 提交任务和查询结果 两个阶段。您需要先创建语音识别任务，再通过语音识别任务的 ID 去查询语音识别结果。
+
+<span id="85eccde2"></span>
+## Submit（提交任务）
+<span id="3ba57910"></span>
+## 接口说明
+提交音频链接，并获取服务端分配的任务 ID。
+<span id="b88cc7fe"></span>
+### 请求参数
+
+```mixin-react
+const properties = ({
+defaultExpandAllRows: true,
+  "columns": [
+    { "title": "参数", "dataIndex": "column_0", "key": "column_0", "width": 300 },
+    { "title": "类型", "dataIndex": "column_1", "key": "column_1", "width": 150 },
+    { "title": "是否必填", "dataIndex": "column_2", "key": "column_2", "width": 80 },
+    { "title": "示例值", "dataIndex": "column_3", "key": "column_3", "width": 150 },
+    { "title": "描述", "dataIndex": "column_4", "key": "column_4" }
+  ],
+  "data": [
+    {
+      "key": 1,
+      "column_0": "operator_id",
+      "column_1": "string",
+      "column_2": "是",
+      "column_3": "las_asr_pro",
+      "column_4": "算子Id"
+    },
+    {
+      "key": 2,
+      "column_0": "operator_version",
+      "column_1": "string",
+      "column_2": "是",
+      "column_3": "v2",
+      "column_4": "算子版本"
+    },
+    {
+      "key": 3,
+      "column_0": "data",
+      "column_1": "SpeechRecognition",
+      "column_2": "是",
+      "column_3": "",
+      "column_4": "请求数据",
+      "children": [
+        {
+          "key": 31,
+          "column_0": "user",
+          "column_1": "UserConfig",
+          "column_2": "否",
+          "column_3": "",
+          "column_4": "用户相关配置",
+          "children": [
+            {
+              "key": 311,
+              "column_0": "uid",
+              "column_1": "string",
+              "column_2": "否",
+              "column_3": "",
+              "column_4": "用户标识，建议采用 IMEI 或 MAC。"
+            }
+          ]
+        },
+        {
+          "key": 32,
+          "column_0": "audio",
+          "column_1": "Audio",
+          "column_2": "是",
+          "column_3": "",
+          "column_4": "音频相关配置",
+          "children": [
+            {
+              "key": 321,
+              "column_0": "url",
+              "column_1": "string",
+              "column_2": "是",
+              "column_3": "",
+              "column_4": "音频链接"
+            },
+            {
+              "key": 322,
+              "column_0": "language",
+              "column_1": "string",
+              "column_2": "否",
+              "column_3": "en-US",
+              "column_4": <div>当该键为空时，该模型支持<b>中英文、上海话、闽南语，四川、陕西、粤语</b>识别。<br/>当将其设置为下方特定键时，它可以识别指定语言。 <br/>英语：en-US <br/>日语：ja-JP <br/>印尼语：id-ID <br/>西班牙语：es-MX <br/>葡萄牙语：pt-BR <br/>德语：de-DE <br/>法语：fr-FR <br/>韩语：ko-KR <br/>菲律宾语：fil-PH <br/>马来语：ms-MY <br/>泰语：th-TH <br/>阿拉伯语：ar-SA</div>
+            },
+            {
+              "key": 323,
+              "column_0": "format",
+              "column_1": "string",
+              "column_2": "是",
+              "column_3": "mp3",
+              "column_4": "音频容器格式，目前支持 raw/wav/mp3/ogg 格式"
+            },
+            {
+              "key": 324,
+              "column_0": "codec",
+              "column_1": "string",
+              "column_2": "否",
+              "column_3": "raw",
+              "column_4": "音频编码格式，目前支持 raw / opus，默认为 raw(pcm)"
+            },
+            {
+              "key": 325,
+              "column_0": "rate",
+              "column_1": "integer",
+              "column_2": "否",
+              "column_3": "",
+              "column_4": "音频采样率，默认为16000"
+            },
+            {
+              "key": 326,
+              "column_0": "bits",
+              "column_1": "integer",
+              "column_2": "否",
+              "column_3": "",
+              "column_4": "音频采样点位数，默认为16，暂只支持16bits"
+            },
+            {
+              "key": 327,
+              "column_0": "channel",
+              "column_1": "integer",
+              "column_2": "否",
+              "column_3": "",
+              "column_4": "音频声道数，1(mono) / 2(stereo)，默认为1。"
+            }
+          ]
+        },
+        {
+          "key": 33,
+          "column_0": "resource",
+          "column_1": "string",
+          "column_2": "否",
+          "column_3": "bigasr",
+          "column_4": "可选值为 \"bigasr\" 与 \"seedasr\"，其中默认值为\"bigasr\"。"
+        },
+        {
+          "key": 34,
+          "column_0": "request",
+          "column_1": "RequestConfig",
+          "column_2": "是",
+          "column_3": "",
+          "column_4": "请求相关配置",
+          "children": [
+            {
+              "key": 341,
+              "column_0": "model_name",
+              "column_1": "string",
+              "column_2": "是",
+              "column_3": "bigmodel",
+              "column_4": "模型名称，目前只有bigmodel"
+            },
+            {
+              "key": 342,
+              "column_0": "model_version",
+              "column_1": "string",
+              "column_2": "是",
+              "column_3": "bigmodel",
+              "column_4": <div>当 resource 指定为 'bigasr' 时，传model_version = "400" 使用400模型效果，不传时为默认310模型效果。<br/> 400模型性能略有提升，且ITN有较大优化。<br/>  当 resource 指定为 'seedasr' 时，请勿传该参数。</div>
+            },
+            {
+              "key": 343,
+              "column_0": "enable_itn",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "true",
+              "column_4": <div>默认为 true。<br/>文本规范化 (ITN) 是自动语音识别 (ASR) 后处理管道的一部分。 ITN 的任务是将 ASR 模型的原始语音输出转换为书面形式，以提高文本的可读性。 <br/> 例如，“一九七零年”-&gt;“1970年”和“一百二十三美元”-&gt;“$123”。</div>
+            },
+            {
+              "key": 344,
+              "column_0": "enable_punc",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": "默认为 false。 启用标点。"
+            },
+            {
+              "key": 345,
+              "column_0": "enable_ddc",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": <div>默认为 false。  <br/><b>语义顺滑</b>是一种技术，旨在提高自动语音识别（ASR）结果的文本可读性和流畅性。这项技术通过删除或修改ASR结果中的不流畅部分，如停顿词、语气词、语义重复词等，使得文本更加易于阅读和理解。</div>
+            },
+            {
+              "key": 346,
+              "column_0": "enable_speaker_info",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": <div>默认为 false，开启后可返回说话人的信息，10人以内，效果较好。<br/>（如果音频存在音量、远近等明显变化，无法保证区分效果）</div>
+            },
+            {
+              "key": 347,
+              "column_0": "enable_channel_split",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": <div>默认为 false。  <br/>如果设为 true，则会在返回结果中使用channel_id标记，1为左声道，2为右声道。</div>
+            },
+            {
+              "key": 348,
+              "column_0": "show_utterances",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": "输出语音停顿、分句、分词信息"
+            },
+            {
+              "key": 349,
+              "column_0": "show_speech_rate",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": <div>分句信息携带语速。<br/>如果设为 true，则会在分句additions信息中使用speech_rate标记，单位为 token/s。默认 false</div>
+            },
+            {
+              "key": 3410,
+              "column_0": "show_volume",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": <div>默认 false <br/> 如果设为 true，则会在分句additions信息中使用volume标记，单位为 分贝。</div>
+            },
+            {
+              "key": 3411,
+              "column_0": "enable_lid",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": <div>启用语种识别。 <br/>  目前支持语种：<b>普通话、英语、上海话、闽南语，四川话、陕西话、粤语</b></div>
+            },
+            {
+              "key": 3412,
+              "column_0": "enable_emotion_detection",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": <div>默认 false。<br/> 如果设为 true，则会在分句additions信息中使用emotion标记, 返回对应的情绪标签。<br/>支持的情绪标签包括：<br/>- "angry"：表示情绪为生气 <br/>- "happy"：表示情绪为开心    <br/>   - "neutral"：表示情绪为平静或中性   <br/>   - "sad"：表示情绪为悲伤    <br/>    - "surprise"：表示情绪为惊讶</div>
+            },
+            {
+              "key": 3413,
+              "column_0": "enable_gender_detection",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": <div>默认 false。<br/> 如果设为 true，则会在分句additions信息中使用gender标记, 返回对应的性别标签（male/female）。</div>
+            },
+            {
+              "key": 3414,
+              "column_0": "vad_segment",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": <div>默认为 false，默认是语义分句。<br/>打开双声道识别时，通常需要使用vad分句，可同时打开此参数</div>
+            },
+            {
+              "key": 3415,
+              "column_0": "end_window_size",
+              "column_1": "integer",
+              "column_2": "否",
+              "column_3": "800",
+              "column_4": <div>配置该值，不使用语义分句，根据静音时长来分句。<br/> 范围300 - 5000ms，建议设置800ms或者1000ms，比较敏感的场景可以配置500ms或者更小。（如果配置的过小，则会导致分句过碎，配置过大会导致不容易将说话内容分开。建议依照自身场景按需配置）</div>
+            },
+            {
+              "key": 3416,
+              "column_0": "sensitive_words_filter",
+              "column_1": "string",
+              "column_2": "否",
+              "column_3": <div>"sensitive_words_filter":&#123;"system_reserved_filter":true,"filter_with_empty":["敏感词"],"filter_with_signed":["敏感词"]&#125;", </div>,
+              "column_4": <div>敏感词过滤功能，支持开启或关闭，开启后支持对不同类型的敏感词进行处理。<br/>LAS 为您预置了系统敏感词（主要为一些限制级词汇），您可开启对系统敏感词进行脱敏处理，也可自定义其他敏感词对自定义敏感词进行以下处理方式：不处理(默认，即展示原文)、过滤、替换为*。设置方式如下：<ul><li>system_reserved_filter：设置为true或false，设置是否使用系统敏感词，取值为“true”时，会将系统敏感词替换成*。 </li><li>filter_with_empty：自定义敏感词范围，并将此类敏感词替换成空。</li><li>filter_with_signed ：自定义敏感词，并将此类敏感词替换成 * 。</li></ul></div>
+            },
+            {
+              "key": 3417,
+              "column_0": "enable_poi_fc",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": <div>对于语音识别困难的词语，能调用专业的地图领域推荐词服务辅助识别。<br/> 示例：<pre style={{background: "#eee", borderRadius: "4px"}}><code> "request": &#123; <br/> "enable_poi_fc": true,<br/> "corpus": &#123;<br/> "context": "&#123;\"loc_info\":&#123;\"city_name\":\"北京市\"&#125;&#125;"<br/> &#125;<br/>&#125; </code></pre> 其中loc_info字段可选，传入该字段结果相对更精准，city_name单位为地级市。</div>
+            },
+            {
+              "key": 3418,
+              "column_0": "enable_music_fc",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "false",
+              "column_4": <div>对于语音识别困难的词语，能调用专业的音领域推荐词服务辅助识别。<br/> 配置格式：<pre style={{background: "#eee", borderRadius: "4px"}}><code> "request": &#123;<br/>    "enable_music_fc": true<br/>&#125; </code></pre></div>
+            },
+            {
+              "key": 3419,
+              "column_0": "enable_denoise",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "",
+              "column_4": "是否开启降噪"
+            },
+            {
+              "key": 3420,
+              "column_0": "enable_multi_language",
+              "column_1": "boolean",
+              "column_2": "否",
+              "column_3": "",
+              "column_4": <div>是否开启语种识别和多语种支持，默认为 true。</div>
+            },
+            {
+              "key": 3421,
+              "column_0": "corpus",
+              "column_1": "Corpus",
+              "column_2": "否",
+              "column_3": "",
+              "column_4": "语料/干预词等",
+              "children": [
+                {
+                  "key": 34211,
+                  "column_0": "context",
+                  "column_1": "string",
+                  "column_2": "否",
+                  "column_3": "",
+                  "column_4": <div>热词直传，支持5000个热词 "context":"&#123;\"hotwords\":[&#123;\"word\":\"热词1号\"&#125;, &#123;\"word\":\"热词2号\"&#125;]&#125;" 上下文，限制800 tokens及20轮（含）内，超出会按照时间顺序从新到旧截断，优先保留更新的对话 context_data字段按照从新到旧的顺序排列，以下是反序列化后的例子，传入需要序列化为jsonstring（转义引号）<pre style={{background: "#eee", borderRadius: "4px"}}><code>上下文:可以加入对话历史、聊天所在bot信息、个性化信息、业务场景信息等,如:<br/>a.对话历史:把最近几轮的对话历史传进来<br/>b.聊天所在bot信息:如"我在和林黛玉聊天","我在使用A助手和手机对话"<br/>c.个性化信息:"我当前在北京市海淀区","我有四川口音","我喜欢音乐"<br/>d.业务场景信息:"当前是中国平安的营销人员针对外部客户采访的录音,可能涉及..."<br/>&#123;<br/>\"context_type\": \"dialog_ctx\",<br/>\"context_data\":[<br/>&#123;\"text\": \"text1\"&#125;,<br/>&#123;\"text\": \"text2\"&#125;,<br/>&#123;\"text\": \"text3\"&#125;,<br/>&#123;\"text\": \"text4\"&#125;,<br/>...<br/>]<br/>&#125;</code></pre></div>
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}); 
+return <Table border={{ cell: true, wrapper: true }} pagination={false} {...properties} />;
+```
+
+<span id="57d1e08f"></span>
+### 返回参数
+
+```mixin-react
+const properties = ({
+defaultExpandAllRows: true,
+  "columns": [
+    { "title": "参数", "dataIndex": "column_0", "key": "column_0", "width": 300 },
+    { "title": "类型", "dataIndex": "column_1", "key": "column_1", "width": 150 },
+    { "title": "示例值", "dataIndex": "column_2", "key": "column_2", "width": 150 },
+    { "title": "描述", "dataIndex": "column_3", "key": "column_3" }
+  ],
+  "data": [
+    {
+      "key": 1,
+      "column_0": "metadata",
+      "column_1": "Metadata",
+      "column_2": "",
+      "column_3": "请求元信息",
+      "children": [
+        {
+          "key": 11,
+          "column_0": "task_id",
+          "column_1": "string",
+          "column_2": "",
+          "column_3": "异步模式下的任务id。"
+        },
+        {
+          "key": 12,
+          "column_0": "task_status",
+          "column_1": "string",
+          "column_2": "",
+          "column_3": "异步模式下的任务状态。"
+        },
+        {
+          "key": 13,
+          "column_0": "business_code",
+          "column_1": "string",
+          "column_2": "",
+          "column_3": "业务码"
+        },
+        {
+          "key": 14,
+          "column_0": "error_msg",
+          "column_1": "string",
+          "column_2": "",
+          "column_3": "如有异常，会返回详细的异常信息。"
+        },
+        {
+          "key": 15,
+          "column_0": "request_id",
+          "column_1": "string",
+          "column_2": "",
+          "column_3": "请求requestid"
+        }
+      ]
+    }
+  ]
+}); 
+return <Table border={{ cell: true, wrapper: true }} pagination={false} {...properties} />;
+```
+
+<span id="d9471d5b"></span>
+### 示例
+<span id="d6ddd1cf"></span>
+#### 请求示例
+```Bash
+curl --location "https://operator.las.cn-beijing.volces.com/api/v1/submit" \
+--header "Content-Type: application/json" \
+--header "Authorization: Bearer $$LAS_API_KEY" \
+--data '
+{
+    "operator_id": "las_asr_pro",
+    "operator_version": "v1",
+    "data": {
+        "resource": "bigasr",
+        "audio": {
+            "url": "https://las-ai-cn-beijing-online.tos-cn-beijing.volces.com/operator_cards_serving/public/online/las_asr/badaling.wav",
+            "format": "wav"
+        },
+        "request": {
+            "model_name": "bigmodel"
+        }
+    }
+}'
+```
+
+<span id="5146cafd"></span>
+#### 返回示例
+```JSON
+{
+    "metadata": {
+        "task_id": "xxxxx123ef24ea40546c",
+        "task_status": "PENDING",
+        "business_code": "0",
+        "error_msg": "",
+        "request_id": "494022a8a0fc3eadb758cf8b0e8b20ef"
+    }
+}
+```
+
+<span id="a2e8248e"></span>
+## Poll（查询结果）
+<span id="afe202be"></span>
+## 接口说明
+通过任务 ID 查询录音转写结果。
+<span id="9e03f312"></span>
+### 请求参数
+
+| | | | | | \
+|参数 |类型 |必填 |示例值 |说明 |
+|---|---|---|---|---|
+| | | | | | \
+|operator_id |\
+| |string |\
+| | |是 |las_asr_pro |算子Id |
+| | | | | | \
+|operator_version |\
+| |string |\
+| | |是 |v1 |算子版本 |
+| | | | | | \
+|task_id |\
+| |string |\
+| | |是 | |异步任务Id |
+
+<span id="99c9b9f0"></span>
+### 返回参数
+
+```mixin-react
+const properties = ({
+defaultExpandAllRows: true,
+   "columns": [
+     { "title": "参数", "dataIndex": "column_0", "key": "column_0", "width": 300 },
+     { "title": "类型", "dataIndex": "column_1", "key": "column_1", "width": 150 },
+     { "title": "示例值", "dataIndex": "column_2", "key": "column_2", "width": 150 },
+     { "title": "描述", "dataIndex": "column_3", "key": "column_3" }
+   ],
+   "data": [
+     {
+       "key": 1,
+       "column_0": "metadata",
+       "column_1": "Metadata",
+       "column_2": "",
+       "column_3": "请求的元信息，异步任务的id在其中的task_id字段下。",
+       "children": [
+         {
+           "key": 11,
+           "column_0": "task_id",
+           "column_1": "string",
+           "column_2": "xxxxx123ef24ea40546c-las-asr",
+           "column_3": "异步模式下的任务id。"
+         },
+         {
+           "key": 12,
+           "column_0": "task_status",
+           "column_1": "string",
+           "column_2": "COMPLETED",
+           "column_3": "异步模式下的任务状态。"
+         },
+         {
+           "key": 13,
+           "column_0": "business_code",
+           "column_1": "string",
+           "column_2": "0",
+           "column_3": <div>业务码 <br/> - PENDING, 提交任务排队<br/> - RUNNING, 正在运行 <br/> - COMPLETED, 已经完成<br/> - FAILED, 失败<br/> - TIMEOUT, 超时</div>
+         },
+         {
+           "key": 14,
+           "column_0": "error_msg",
+           "column_1": "string",
+           "column_2": "",
+           "column_3": "如有异常，会返回详细的异常信息。"
+         },
+         {
+           "key": 15,
+           "column_0": "request_id",
+           "column_1": "string",
+           "column_2": "d204c21f5c7c8f8cfeb85d211b9c20ac",
+           "column_3": "请求requestid"
+         }
+       ]
+     },
+     {
+       "key": 2,
+       "column_0": "data",
+       "column_1": "AudioResponse",
+       "column_2": "",
+       "column_3": "返回的音频识别结果。",
+       "children": [
+         {
+           "key": 21,
+           "column_0": "audio_info",
+           "column_1": "AudioInfo",
+           "column_2": "",
+           "column_3": "音频信息",
+           "children": [
+             {
+               "key": 211,
+               "column_0": "duration",
+               "column_1": "integer",
+               "column_2": "3575",
+               "column_3": "音频时长，单位秒"
+             },
+{
+               "key": 212,
+               "column_0": "language",
+               "column_1": "string",
+               "column_2": "zh-CN",
+               "column_3": "音频语种"
+             }
+           ]
+         },
+         {
+           "key": 22,
+           "column_0": "result",
+           "column_1": "AudioResult",
+           "column_2": "",
+           "column_3": "音频识别结果",
+           "children": [
+             {
+               "key": 221,
+               "column_0": "text",
+               "column_1": "string",
+               "column_2": "参观达*长城。",
+               "column_3": "识别出的文本内容"
+             },
+             {
+               "key": 222,
+               "column_0": "utterances",
+               "column_1": "list of Utterance",
+               "column_2": "",
+               "column_3": "语音停顿、分句、分词信息",
+               "children": [
+                 {
+                   "key": 2221,
+                   "column_0": "additions",
+                   "column_1": "Additions",
+                   "column_2": "",
+                   "column_3": "额外信息，如说话人等",
+                   "children": [
+                     {
+                       "key": 22211,
+                       "column_0": "emotion_degree",
+                       "column_1": "string",
+                       "column_2": "",
+                       "column_3": "情感强度"
+                     },
+                     {
+                       "key": 22212,
+                       "column_0": "emotion_degree_score",
+                       "column_1": "string",
+                       "column_2": "",
+                       "column_3": "情感强度得分"
+                     },
+                     {
+                       "key": 22213,
+                       "column_0": "emotion",
+                       "column_1": "string",
+                       "column_2": "",
+                       "column_3": "情感类型"
+                     },
+                     {
+                       "key": 22214,
+                       "column_0": "emotion_score",
+                       "column_1": "string",
+                       "column_2": "",
+                       "column_3": "情感类型得分"
+                     },
+                     {
+                       "key": 22215,
+                       "column_0": "gender",
+                       "column_1": "string",
+                       "column_2": "",
+                       "column_3": "性别"
+                     },
+                     {
+                       "key": 22216,
+                       "column_0": "gender_score",
+                       "column_1": "string",
+                       "column_2": "",
+                       "column_3": "性别得分"
+                     },
+                     {
+                       "key": 22217,
+                       "column_0": "speech_rate",
+                       "column_1": "string",
+                       "column_2": "",
+                       "column_3": "说话频率"
+                     },
+                     {
+                       "key": 22218,
+                       "column_0": "volume",
+                       "column_1": "string",
+                       "column_2": "",
+                       "column_3": "音量"
+                     },
+                     {
+                       "key": 22219,
+                       "column_0": "speaker",
+                       "column_1": "string",
+                       "column_2": "",
+                       "column_3": "说话人"
+                     },
+                     {
+                       "key": 22220,
+                       "column_0": "channel_id",
+                       "column_1": "string",
+                       "column_2": "1",
+                       "column_3": "声道编号"
+                     }
+                   ]
+                 },
+                 {
+                   "key": 2222,
+                   "column_0": "confidence",
+                   "column_1": "integer",
+                   "column_2": "",
+                   "column_3": "置信度"
+                 },
+                 {
+                   "key": 2223,
+                   "column_0": "end_time",
+                   "column_1": "integer",
+                   "column_2": "2320",
+                   "column_3": "结束时间"
+                 },
+                 {
+                   "key": 2224,
+                   "column_0": "start_time",
+                   "column_1": "integer",
+                   "column_2": "640",
+                   "column_3": "起始时间"
+                 },
+                 {
+                   "key": 2225,
+                   "column_0": "text",
+                   "column_1": "string",
+                   "column_2": "参观达*长城。",
+                   "column_3": "该部分文本内容"
+                 },
+                 {
+                   "key": 2226,
+                   "column_0": "words",
+                   "column_1": "list of Word",
+                   "column_2": "",
+                   "column_3": "单词相关信息",
+                   "children": [
+                     {
+                       "key": 22261,
+                       "column_0": "confidence",
+                       "column_1": "integer",
+                       "column_2": "0",
+                       "column_3": "置信度"
+                     },
+                     {
+                       "key": 22262,
+                       "column_0": "blank_duration",
+                       "column_1": "integer",
+                       "column_2": "",
+                       "column_3": "空白时长"
+                     },
+                     {
+                       "key": 22263,
+                       "column_0": "end_time",
+                       "column_1": "integer",
+                       "column_2": "920",
+                       "column_3": "单词结束时间"
+                     },
+                     {
+                       "key": 22264,
+                       "column_0": "start_time",
+                       "column_1": "integer",
+                       "column_2": "640",
+                       "column_3": "单词起始时间"
+                     },
+                     {
+                       "key": 22265,
+                       "column_0": "text",
+                       "column_1": "string",
+                       "column_2": "参",
+                       "column_3": "单词文本"
+                     }
+                   ]
+                 }
+               ]
+             },
+             {
+               "key": 223,
+               "column_0": "additions",
+               "column_1": "RequestAdditions",
+               "column_2": "",
+               "column_3": "额外信息",
+               "children": [
+                 {
+                   "key": 2231,
+                   "column_0": "duration",
+                   "column_1": "string",
+                   "column_2": "3575",
+                   "column_3": "音频时长"
+                 },
+                 {
+                   "key": 2232,
+                   "column_0": "lid_lang",
+                   "column_1": "string",
+                   "column_2": "",
+                   "column_3": "音频语种"
+                 }
+               ]
+             }
+           ]
+         }
+       ]
+     }
+   ]
+ }); 
+return <Table border={{ cell: true, wrapper: true }} pagination={false} {...properties} />;
+```
+
+<span id="b770e28a"></span>
+### 示例
+<span id="ad1b45e7"></span>
+#### 请求示例
+```Bash
+curl --location "https://operator.las.cn-beijing.volces.com/api/v1/poll" \
+--header "Content-Type: application/json" \
+--header "Authorization: Bearer $$LAS_API_KEY" \
+--data '
+{
+    "operator_id": "las_asr_pro",
+    "operator_version": "v1",
+    "task_id": "xxxxx123ef24ea40546c"
+}'
+```
+
+<span id="4d0d4a34"></span>
+#### 返回示例
+```JSON
+{
+    "metadata": {
+        "task_id": "xxxxx123ef24ea40546c",
+        "task_status": "COMPLETED",
+        "business_code": "0",
+        "error_msg": "",
+        "request_id": "d204c21f5c7c8f8cfeb85d211b9c20ac"
+    },
+    "data": {
+        "audio_info": {
+            "duration": 3575
+        },
+        "result": {
+            "additions": {
+                "duration": "3575",
+                "language": "zh-CN"
+            },
+            "text": "参观达*长城。",
+            "utterances": [
+                {
+                    "additions": {
+                        "channel_id": "1"
+                    },
+                    "end_time": 2320,
+                    "start_time": 640,
+                    "text": "参观达*长城。",
+                    "words": [
+                        {
+                            "confidence": 0,
+                            "end_time": 920,
+                            "start_time": 640,
+                            "text": "参"
+                        },
+                        {
+                            "confidence": 0,
+                            "end_time": 1120,
+                            "start_time": 920,
+                            "text": "观"
+                        },
+                        {
+                            "confidence": 0,
+                            "end_time": 1480,
+                            "start_time": 1440,
+                            "text": "达"
+                        },
+                        {
+                            "confidence": 0,
+                            "end_time": 1720,
+                            "start_time": 1680,
+                            "text": "*"
+                        },
+                        {
+                            "confidence": 0,
+                            "end_time": 2080,
+                            "start_time": 1880,
+                            "text": "长"
+                        },
+                        {
+                            "confidence": 0,
+                            "end_time": 2320,
+                            "start_time": 2080,
+                            "text": "城"
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+}
+```
+

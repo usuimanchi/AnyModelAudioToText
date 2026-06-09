@@ -1,0 +1,551 @@
+//! 多提供商语音转文本批量客户端
+//!
+//! ## 支持的提供商
+//!
+//! - **火山引擎（豆包大模型）** —— 默认，使用 volc.seedasr.auc
+//! - **Azure Speech-to-Text** —— 多语言混合识别能力出色
+//!
+//! ## 使用方式
+//!
+//! ```bash
+//! # 火山引擎（默认）
+//! volc_auc_batch_client --api-key <KEY> --inputs "https://example.com/audio.wav"
+//!
+//! # Azure（多语言识别）
+//! volc_auc_batch_client --provider azure \
+//!   --azure-key <KEY> --azure-region eastasia \
+//!   --candidate-locales "en-US,zh-CN,ja-JP" \
+//!   --inputs "https://example.com/mixed-lang.wav"
+//!
+//! # 仅检查/准备本地音频，不提交
+//! volc_auc_batch_client --inputs ./recording.m4a --prepare-only
+//! ```
+//!
+//! ## 外部依赖
+//! - `ffmpeg` / `ffprobe`：音频探测、格式转换与切分
+
+mod audio;
+mod azure;
+mod backend;
+mod input;
+mod output;
+mod types;
+mod volcengine;
+
+use anyhow::{anyhow, Context, Result};
+use clap::Parser;
+use dialoguer::{Confirm, Input, MultiSelect, theme::ColorfulTheme};
+use std::fs;
+use std::path::PathBuf;
+use std::time::Duration;
+
+use crate::backend::{JobHandle, TranscriptionBackend};
+use crate::types::*;
+
+// ---------------------------------------------------------------------------
+// CLI 参数
+// ---------------------------------------------------------------------------
+
+#[derive(Parser, Debug)]
+#[command(
+    name = "volc_auc_batch_client",
+    author,
+    version,
+    about = "多提供商语音转文本批量客户端 —— 音频检查/转换/切分 + 批量提交与结果轮询",
+    long_about = "支持的提供商：火山引擎（豆包大模型，默认）| Azure Speech-to-Text",
+)]
+struct Cli {
+    // ---- 提供商选择 ----
+    /// 语音转文本提供商：volcengine（默认）或 azure
+    #[arg(long, default_value = "volcengine", help = "提供商: volcengine | azure")]
+    provider: String,
+
+    // ---- 火山引擎认证 ----
+    /// 火山引擎 API Key（新版控制台的 X-Api-Key）
+    #[arg(long, help = "火山引擎 X-Api-Key")]
+    api_key: Option<String>,
+
+    /// 火山引擎 Resource ID，默认 volc.seedasr.auc
+    #[arg(long, help = "火山引擎 Resource ID")]
+    resource_id: Option<String>,
+
+    /// 旧版火山引擎控制台兼容模式
+    #[arg(long, default_value_t = false, help = "火山引擎旧版控制台")]
+    legacy_mode: bool,
+
+    /// 旧版控制台 App Key
+    #[arg(long, help = "旧版控制台 App Key")]
+    app_key: Option<String>,
+
+    /// 旧版控制台 Access Key
+    #[arg(long, help = "旧版控制台 Access Key")]
+    access_key: Option<String>,
+
+    // ---- Azure 认证 ----
+    /// Azure Speech 资源的订阅密钥（Ocp-Apim-Subscription-Key）
+    #[arg(long, help = "Azure subscription key")]
+    azure_key: Option<String>,
+
+    /// Azure 区域（如 eastasia, westeurope, eastus）
+    #[arg(long, help = "Azure 区域")]
+    azure_region: Option<String>,
+
+    // ---- 通用识别选项 ----
+    /// 音频输入：本地文件路径 或 HTTP(S) URL，可传入多个
+    #[arg(long, num_args = 1.., help = "音频文件 URL 或本地路径")]
+    inputs: Option<Vec<String>>,
+
+    /// 识别语言（逗号分隔）。留空则自动识别。
+    #[arg(long, help = "主识别语言，如 zh-CN, en-US, ja-JP")]
+    language: Option<String>,
+
+    /// 是否开启说话人分离（Azure: diarization）
+    #[arg(long, default_value_t = false, help = "开启说话人分离")]
+    enable_speaker_info: bool,
+
+    /// 是否开启文本规范化 ITN（仅火山引擎）
+    #[arg(long, default_value_t = true, help = "开启 ITN")]
+    enable_itn: bool,
+
+    /// 是否开启标点恢复（仅火山引擎；Azure 通过 punctuation-mode 控制）
+    #[arg(long, default_value_t = true, help = "开启标点")]
+    enable_punc: bool,
+
+    /// 是否开启语义顺滑 DDC（仅火山引擎）
+    #[arg(long, default_value_t = false, help = "开启 DDC 语义顺滑")]
+    enable_ddc: bool,
+
+    /// 是否开启自动语种识别（仅火山引擎；Azure 通过 candidate-locales 控制）
+    #[arg(long, default_value_t = true, help = "开启自动语种识别")]
+    enable_auto_lang: bool,
+
+    /// 是否输出分句信息（仅火山引擎）
+    #[arg(long, default_value_t = false, help = "输出分句/分词信息")]
+    show_utterances: bool,
+
+    // ---- 火山引擎专用 ----
+    /// 强制判停时间（毫秒），范围 300-5000。
+    /// 设置后按静音时长分句（VAD），替代默认的语义分句。
+    /// 敏感场景可配 500 或更小，普通场景建议 800-1000。
+    #[arg(long, help = "火山引擎: 强制判停时间 300-5000ms")]
+    end_window_size: Option<u32>,
+
+    /// 自学习平台热词词表名称，参考 https://www.volcengine.com/docs/6561/155738
+    #[arg(long, help = "火山引擎: 自学习热词词表名称")]
+    boosting_table_name: Option<String>,
+
+    /// 自学习平台替换词词表名称，参考 https://www.volcengine.com/docs/6561/1206007
+    #[arg(long, help = "火山引擎: 自学习替换词词表名称")]
+    correct_table_name: Option<String>,
+
+    /// 上下文 JSON 字符串。支持三种模式：
+    /// 1) 热词直传: '{"hotwords":[{"word":"热词1"},{"word":"热词2"}]}' (最多5000词)
+    /// 2) 对话历史: '{"context_type":"dialog_ctx","context_data":[{"text":"..."},{"text":"..."}]}' (最多800 tokens / 20轮)
+    /// 3) POI 定位: '{"loc_info":{"city_name":"北京市"}}' (配合 enable_poi_fc)
+    /// 豆包2.0 支持在 context_data 中传入 image_url 实现图片理解
+    #[arg(long, help = "火山引擎: 上下文 JSON 字符串")]
+    corpus_context: Option<String>,
+
+    // ---- Azure 专用 ----
+    /// 多语言识别的候选语言列表（逗号分隔，最多 10 个）
+    /// 例如 "en-US,zh-CN,ja-JP,ko-KR"。设置后启用 Azure Language Identification。
+    #[arg(long, help = "Azure 候选语言 (逗号分隔，最多10个)")]
+    candidate_locales: Option<String>,
+
+    /// 词级时间戳（Azure）
+    #[arg(long, default_value_t = false, help = "Azure: 启用词级时间戳")]
+    word_level_timestamps: bool,
+
+    /// 脏话过滤模式（Azure）：None / Masked / Removed / Raw
+    #[arg(long, default_value = "Masked", help = "Azure: 脏话过滤")]
+    profanity_filter_mode: String,
+
+    /// 标点模式（Azure）：None / Dictated / Automatic / DictatedAndAutomatic
+    #[arg(long, default_value = "DictatedAndAutomatic", help = "Azure: 标点模式")]
+    punctuation_mode: String,
+
+    // ---- 音频处理 ----
+    /// 输出目录
+    #[arg(long, default_value = DEFAULT_OUTPUT_DIR, help = "输出目录")]
+    output_dir: PathBuf,
+
+    /// 轮询间隔（秒）
+    #[arg(long, default_value_t = DEFAULT_POLL_INTERVAL_SECS, help = "轮询间隔（秒）")]
+    poll_interval_secs: u64,
+
+    /// 单片最大时长（秒），默认 1800
+    #[arg(long, default_value_t = DEFAULT_MAX_DURATION_SECS, help = "单片最大时长（秒）")]
+    max_duration_secs: u64,
+
+    /// 单片最大大小（字节），默认 512MB
+    #[arg(long, default_value_t = DEFAULT_MAX_SIZE_BYTES, help = "单片最大大小（字节）")]
+    max_size_bytes: u64,
+
+    /// 仅检查/准备音频，不提交
+    #[arg(long, default_value_t = false, help = "仅准备音频，不提交任务")]
+    prepare_only: bool,
+
+    /// 递归切分最大深度
+    #[arg(long, default_value_t = DEFAULT_RECURSIVE_DEPTH, help = "递归切分最大深度")]
+    max_split_depth: u32,
+}
+
+// ===========================================================================
+// main
+// ===========================================================================
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let cli_inputs = cli.inputs.clone();
+    let config = build_config(cli).await?;
+
+    // 确保输出目录存在
+    fs::create_dir_all(&config.output_dir)?;
+    fs::create_dir_all(config.output_dir.join("prepared"))?;
+    fs::create_dir_all(config.output_dir.join("download"))?;
+    fs::create_dir_all(config.output_dir.join("results"))?;
+
+    // 持久化 API Key
+    let key_hint_path = config.output_dir.join(".last_api_key");
+    output::persist_api_key_hint(&key_hint_path, &config.api_key)?;
+
+    // 收集输入
+    let inputs = input::gather_inputs(cli_inputs).await?;
+    if inputs.is_empty() {
+        return Err(anyhow!("未提供任何音频输入。请通过 --inputs 传参或在交互模式中输入。"));
+    }
+
+    // HTTP 客户端
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .build()
+        .context("创建 HTTP 客户端失败")?;
+
+    // 根据提供商分发
+    match config.provider {
+        Provider::Volcengine => {
+            run_pipeline::<volcengine::VolcengineBackend>(&client, &config, &inputs).await
+        }
+        Provider::Azure => {
+            run_pipeline::<azure::AzureBackend>(&client, &config, &inputs).await
+        }
+    }
+}
+
+// ===========================================================================
+// 通用编排流程
+// ===========================================================================
+
+async fn run_pipeline<B: TranscriptionBackend>(
+    client: &reqwest::Client,
+    config: &Config,
+    inputs: &[String],
+) -> Result<()> {
+    println!("\n🎙️  提供商: {}", B::provider_name());
+
+    let mut all_summaries: Vec<PersistedSummary> = Vec::new();
+    let mut total_submitted = 0usize;
+    let mut total_prepared = 0usize;
+
+    for input_str in inputs {
+        println!("\n{}", "═".repeat(60));
+        println!("📥  处理输入: {input_str}");
+
+        // 1) 解析输入
+        let audio_input = input::resolve_input(input_str, &config.output_dir).await?;
+
+        // 2) 准备音频（检查/转换/切分）
+        let prepared_chunks = audio::prepare_audio(&audio_input, config).await?;
+        total_prepared += prepared_chunks.len();
+
+        // 输出摘要
+        println!("   ┌─ 准备就绪: {} 个片段", prepared_chunks.len());
+        for (i, c) in prepared_chunks.iter().enumerate() {
+            let dur = audio::format_duration(c.duration_secs);
+            let sz = audio::format_size(c.size_bytes);
+            let url_info = c.submission_url.as_deref().unwrap_or("（无可提交 URL）");
+            println!(
+                "   │  [{i}] {dur}  {sz}  格式={} 编码={}  URL={url_info}",
+                c.format, c.codec
+            );
+        }
+
+        // 3) 筛选可提交片段
+        let submittable: Vec<&PreparedChunk> = prepared_chunks
+            .iter()
+            .filter(|c| c.submission_url.is_some())
+            .collect();
+
+        let mut submitted_summaries: Vec<SubmittedTaskSummary> = Vec::new();
+
+        if submittable.is_empty() {
+            if audio_input.is_url {
+                println!("   ⚠️  该输入为 URL，但音频需要转换/切分。");
+                println!("   💡 原始 URL 指向的是未处理的音频，无法用于提交已处理的本地副本。");
+                println!("   💡 请将 ./auc_output/prepared/ 下处理好的文件上传到可公网访问的服务器，");
+                println!("   💡 然后以新 URL 重新运行本程序。");
+            } else {
+                println!("   ⚠️  该输入为本地文件，无可提交的 URL，跳过 API 提交。");
+                if !config.prepare_only {
+                    println!("   💡 提示：如需提交，请先将音频上传至可公网访问的服务器，再以 URL 形式提供。");
+                }
+            }
+        } else if config.prepare_only {
+            println!(
+                "   ⏭️  --prepare-only 模式，跳过 API 提交（共 {} 个可提交片段）。",
+                submittable.len()
+            );
+        } else {
+            // 4) 批量提交
+            println!("   ┌─ 开始提交 {} 个任务...", submittable.len());
+            let mut handles: Vec<JobHandle> = Vec::new();
+            for chunk in &submittable {
+                match B::submit(client, config, chunk).await {
+                    Ok(handle) => {
+                        handles.push(handle);
+                    }
+                    Err(e) => {
+                        println!("   │  ❌ 提交失败: {e}");
+                    }
+                }
+            }
+            total_submitted += handles.len();
+
+            // 5) 等待完成并保存结果
+            for (handle, chunk) in handles.iter().zip(submittable.iter()) {
+                match B::wait_for_completion(client, config, handle).await {
+                    Ok(output) => {
+                        match B::save_result(config, handle, &output, chunk) {
+                            Ok(summary) => submitted_summaries.push(summary),
+                            Err(e) => {
+                                println!("   ❌ 保存结果失败: {e}");
+                                submitted_summaries.push(SubmittedTaskSummary {
+                                    request_id: handle.id.clone(),
+                                    chunk_path: chunk.path.display().to_string(),
+                                    submission_url: chunk.submission_url.clone().unwrap_or_default(),
+                                    status_code: None,
+                                    status_message: Some(format!("{e}")),
+                                    result_text: None,
+                                    result_json_path: None,
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("   ❌ 任务失败: {e}");
+                        submitted_summaries.push(SubmittedTaskSummary {
+                            request_id: handle.id.clone(),
+                            chunk_path: chunk.path.display().to_string(),
+                            submission_url: chunk.submission_url.clone().unwrap_or_default(),
+                            status_code: None,
+                            status_message: Some(format!("{e}")),
+                            result_text: None,
+                            result_json_path: None,
+                        });
+                    }
+                }
+            }
+        }
+
+        // 6) 汇总
+        let chunk_summaries: Vec<ChunkSummary> = prepared_chunks
+            .iter()
+            .map(|c| ChunkSummary {
+                path: c.path.display().to_string(),
+                format: c.format.clone(),
+                codec: c.codec.clone(),
+                sample_rate: c.sample_rate,
+                duration_secs: c.duration_secs,
+                size_bytes: c.size_bytes,
+            })
+            .collect();
+
+        all_summaries.push(PersistedSummary {
+            original_input: input_str.clone(),
+            source_path: audio_input.source_path.display().to_string(),
+            is_url: audio_input.is_url,
+            chunks: chunk_summaries,
+            submitted: submitted_summaries,
+        });
+    }
+
+    // 写入 manifest
+    if !all_summaries.is_empty() {
+        let manifest_path = config.output_dir.join("manifest.json");
+        output::write_manifest(&manifest_path, &all_summaries)?;
+    }
+
+    println!(
+        "\n🎉 全部完成！准备: {total_prepared} 个片段，提交: {total_submitted} 个任务。"
+    );
+    Ok(())
+}
+
+// ===========================================================================
+// 配置构建
+// ===========================================================================
+
+async fn build_config(cli: Cli) -> Result<Config> {
+    let theme = ColorfulTheme::default();
+
+    // --- 提供商 ---
+    let provider = match cli.provider.as_str() {
+        "azure" | "Azure" => Provider::Azure,
+        "volcengine" | "volc" | "" | _ => Provider::Volcengine,
+    };
+
+    // --- API Key ---
+    let stored_key_path = PathBuf::from(DEFAULT_OUTPUT_DIR).join(".last_api_key");
+    let stored_key = output::load_last_api_key_hint(&stored_key_path);
+
+    let (api_key, azure_key, azure_region) =
+        if provider == Provider::Azure {
+            // Azure 认证
+            let az_key = match cli.azure_key {
+                Some(ref v) if !v.trim().is_empty() => v.clone(),
+                _ => {
+                    Input::<String>::with_theme(&theme)
+                        .with_prompt("请输入 Azure Subscription Key (Ocp-Apim-Subscription-Key)")
+                        .interact_text()?
+                }
+            };
+            let az_region = match cli.azure_region {
+                Some(ref v) if !v.trim().is_empty() => v.clone(),
+                _ => {
+                    Input::<String>::with_theme(&theme)
+                        .with_prompt("请输入 Azure Region（如 eastasia, westeurope）")
+                        .default("eastasia".into())
+                        .interact_text()?
+                }
+            };
+            // 对于 Azure，api_key 使用 azure_key 的副本以兼容存储逻辑
+            (az_key.clone(), Some(az_key), Some(az_region))
+        } else {
+            // 火山引擎认证
+            let key = match cli.api_key {
+                Some(ref v) if !v.trim().is_empty() => v.clone(),
+                _ => {
+                    if let Some(s) = stored_key.filter(|s| !s.is_empty()) {
+                        let use_stored = Confirm::with_theme(&theme)
+                            .with_prompt(format!(
+                                "使用上次的 API Key（{}...）？",
+                                &s[..s.len().min(8)]
+                            ))
+                            .default(true)
+                            .interact()
+                            .unwrap_or(true);
+                        if use_stored {
+                            s
+                        } else {
+                            Input::<String>::with_theme(&theme)
+                                .with_prompt("请输入 X-Api-Key")
+                                .interact_text()?
+                        }
+                    } else {
+                        Input::<String>::with_theme(&theme)
+                            .with_prompt("请输入 X-Api-Key")
+                            .interact_text()?
+                    }
+                }
+            };
+            (key, None, None)
+        };
+
+    // --- Resource ID ---
+    let resource_id = cli
+        .resource_id
+        .unwrap_or_else(|| DEFAULT_RESOURCE_ID.to_string());
+
+    // --- Language ---
+    let language = match cli.language {
+        Some(ref l) if !l.trim().is_empty() => Some(l.trim().to_string()),
+        _ => {
+            let langs = vec![
+                "（自动识别 / 留空）",
+                "zh-CN  中文普通话",
+                "en-US  英语",
+                "ja-JP  日语",
+                "ko-KR  韩语",
+                "yue-CN 粤语",
+                "de-DE  德语",
+                "fr-FR  法语",
+                "es-MX  西班牙语",
+                "pt-BR  葡萄牙语",
+            ];
+            let selections = MultiSelect::with_theme(&theme)
+                .with_prompt("选择主识别语言（空格选中，回车确认；留空则自动识别）")
+                .items(&langs)
+                .interact()
+                .unwrap_or_default();
+
+            if selections.is_empty() {
+                None
+            } else {
+                let selected: Vec<&str> = selections
+                    .iter()
+                    .map(|&i| langs[i].split_whitespace().next().unwrap_or(""))
+                    .filter(|s| !s.is_empty() && *s != "（自动识别")
+                    .collect();
+                if selected.is_empty() {
+                    None
+                } else {
+                    Some(selected.join(","))
+                }
+            }
+        }
+    };
+
+    // --- 候选语言（Azure 多语言 ID）---
+    let candidate_locales: Option<Vec<String>> = match cli.candidate_locales {
+        Some(ref s) if !s.trim().is_empty() => {
+            Some(s.split(',').map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect())
+        }
+        _ => None,
+    };
+
+    // --- legacy 校验 ---
+    if cli.legacy_mode && (cli.app_key.is_none() || cli.access_key.is_none()) {
+        return Err(anyhow!("legacy-mode 需要同时提供 --app-key 和 --access-key"));
+    }
+
+    // --- Azure 必填项校验 ---
+    if provider == Provider::Azure && azure_key.is_none() {
+        return Err(anyhow!("Azure 提供商需要 --azure-key"));
+    }
+    if provider == Provider::Azure && azure_region.is_none() {
+        return Err(anyhow!("Azure 提供商需要 --azure-region"));
+    }
+
+    Ok(Config {
+        provider,
+        api_key,
+        resource_id,
+        legacy_mode: cli.legacy_mode,
+        app_key: cli.app_key,
+        access_key: cli.access_key,
+        azure_key,
+        azure_region,
+        language,
+        enable_speaker_info: cli.enable_speaker_info,
+        enable_itn: cli.enable_itn,
+        enable_punc: cli.enable_punc,
+        enable_ddc: cli.enable_ddc,
+        enable_auto_lang: cli.enable_auto_lang,
+        show_utterances: cli.show_utterances,
+        end_window_size: cli.end_window_size,
+        boosting_table_name: cli.boosting_table_name,
+        correct_table_name: cli.correct_table_name,
+        corpus_context: cli.corpus_context,
+        candidate_locales,
+        word_level_timestamps: cli.word_level_timestamps,
+        profanity_filter_mode: cli.profanity_filter_mode,
+        punctuation_mode: cli.punctuation_mode,
+        output_dir: cli.output_dir,
+        poll_interval_secs: cli.poll_interval_secs,
+        max_duration_secs: cli.max_duration_secs,
+        max_size_bytes: cli.max_size_bytes,
+        prepare_only: cli.prepare_only,
+        max_split_depth: cli.max_split_depth,
+    })
+}
