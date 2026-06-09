@@ -7,7 +7,7 @@ use std::path::PathBuf;
 // 常量
 // ---------------------------------------------------------------------------
 
-pub const DEFAULT_RESOURCE_ID: &str = "volc.seedasr.auc";
+pub const DEFAULT_RESOURCE_ID: &str = "seedasr";
 pub const DEFAULT_OUTPUT_DIR: &str = "./auc_output";
 pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 5;
 pub const DEFAULT_MAX_DURATION_SECS: u64 = 30 * 60; // 30 分钟

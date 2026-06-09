@@ -388,9 +388,15 @@ impl TranscriptionBackend for VolcengineBackend {
 fn build_headers(config: &Config, request_id: &str) -> Result<HeaderMap> {
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    // 兼容简写：seedasr → volc.seedasr.auc，bigasr → volc.bigasr.auc
+    let res_id = match config.resource_id.as_str() {
+        "seedasr" => "volc.seedasr.auc",
+        "bigasr" => "volc.bigasr.auc",
+        other => other,
+    };
     headers.insert(
         "X-Api-Resource-Id",
-        HeaderValue::from_str(&config.resource_id)?,
+        HeaderValue::from_str(res_id)?,
     );
     headers.insert("X-Api-Request-Id", HeaderValue::from_str(request_id)?);
     headers.insert("X-Api-Sequence", HeaderValue::from_static("-1"));

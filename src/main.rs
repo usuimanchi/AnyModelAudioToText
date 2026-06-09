@@ -179,7 +179,7 @@ struct Cli {
     las_region: String,
 
     /// LAS 算子版本：v1（默认）或 v2
-    #[arg(long, default_value = "v1", help = "LAS: 算子版本 v1|v2")]
+    #[arg(long, default_value = "v2", help = "LAS: 算子版本 v1|v2（v2=Seed-ASR 2.0, 1.6元/h）")]
     operator_version: String,
 
     /// LAS 模型版本。bigasr: "310"(默认) / "400"(优化版)；seedasr 请勿传此参数

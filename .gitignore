@@ -15,7 +15,9 @@
 .DS_Store
 Thumbs.db
 
-# API keys (never commit!)
+# Environment / credentials (never commit!)
+.env
+*.env
 *API key*
 *API_key*
 *api_key*
