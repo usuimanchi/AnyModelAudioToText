@@ -108,6 +108,8 @@ pub struct Config {
 
     // --- LAS 算子专用选项 ---
     /// LAS 服务区域（默认 cn-beijing）
+    /// Ark 模型名称（默认 doubao-seed-2-0-lite-260428）
+    pub ark_model: String,
     pub las_region: String,
     /// 算子版本（v1 / v2）
     pub operator_version: String,

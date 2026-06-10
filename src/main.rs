@@ -175,6 +175,10 @@ struct Cli {
     corpus_context: Option<String>,
 
     // ---- LAS 算子专用 ----
+    /// Ark 模型名称，默认 doubao-seed-2-0-lite-260428
+    #[arg(long, default_value = "doubao-seed-2-0-lite-260428", help = "Ark: 模型名称")]
+    ark_model: String,
+
     /// LAS 服务区域：cn-beijing / cn-shanghai / cn-guangzhou
     #[arg(long, default_value = "cn-beijing", help = "LAS: 服务区域")]
     las_region: String,
@@ -901,6 +905,7 @@ async fn build_config(cli: Cli) -> Result<Config> {
         boosting_table_name: cli.boosting_table_name,
         correct_table_name: cli.correct_table_name,
         corpus_context: cli.corpus_context,
+        ark_model: cli.ark_model,
         las_region: cli.las_region,
         operator_version: cli.operator_version,
         model_version: cli.model_version,

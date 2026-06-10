@@ -21,7 +21,7 @@ use crate::backend::{JobHandle, TranscriptionBackend, TranscriptionOutput};
 use crate::types::{Config, PreparedChunk, SubmittedTaskSummary, Provider};
 
 const ARK_BASE: &str = "https://ark.cn-beijing.volces.com/api/v3";
-const ARK_MODEL: &str = "doubao-seed-2-0-lite-260428";
+const ARK_MODEL_DEFAULT: &str = "doubao-seed-2-0-lite-260428";
 
 const DEFAULT_PROMPT: &str = "\
 你是一个专业的多语种语音转写助手。请严格遵循以下规则转写这段音频：
@@ -100,7 +100,7 @@ impl TranscriptionBackend for ArkBackend {
             .unwrap_or(DEFAULT_PROMPT);
 
         let request = ArkRequest {
-            model: ARK_MODEL.to_string(),
+            model: config.ark_model.clone(),
             input: vec![ArkMessage {
                 role: "user".to_string(),
                 content: vec![
