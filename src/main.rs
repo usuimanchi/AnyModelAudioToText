@@ -262,12 +262,12 @@ struct Cli {
     #[arg(long, default_value_t = DEFAULT_POLL_INTERVAL_SECS, help = "轮询间隔（秒）")]
     poll_interval_secs: u64,
 
-    /// 单片最大时长（秒），默认 1800
-    #[arg(long, default_value_t = DEFAULT_MAX_DURATION_SECS, help = "单片最大时长（秒）")]
+    /// 单片最大时长（秒）。Ark 默认 7200s(120min)，LAS 无限制
+    #[arg(long, default_value_t = DEFAULT_MAX_DURATION_SECS, help = "单片最大时长（秒，默认 7200 = 120min）")]
     max_duration_secs: u64,
 
-    /// 单片最大大小（字节），默认 512MB
-    #[arg(long, default_value_t = DEFAULT_MAX_SIZE_BYTES, help = "单片最大大小（字节）")]
+    /// 单片最大大小（字节）。Ark 默认 25MB（URL 方式限制），LAS 无限制
+    #[arg(long, default_value_t = DEFAULT_MAX_SIZE_BYTES, help = "单片最大大小（字节，默认 25MB）")]
     max_size_bytes: u64,
 
     /// 仅检查/准备音频，不提交
