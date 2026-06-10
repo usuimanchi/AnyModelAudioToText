@@ -37,7 +37,7 @@ mod volcengine;
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use dialoguer::{Confirm, Input, MultiSelect, theme::ColorfulTheme};
+use dialoguer::{Confirm, Input, MultiSelect, Select, theme::ColorfulTheme};
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -604,15 +604,15 @@ fn print_banner() {
 ║   --tos-sk <SK>          TOS Secret Key                        ║
 ║   --tos-bucket <NOM>     TOS bucket (défaut: amamizu-oss)      ║
 ║   --provider <NOM>       ark | las | volcengine | azure        ║
-║   --language <CODE>      Langue (ex: fr-FR, zh-CN)             ║
-║   --ark-model <NOM>      Modèle Ark (défaut: lite)             ║
+║   --language <CODE>      Langue (ex: fr-FR, zh-CN, défaut auto) ║
+║   --ark-model <NOM>      Modèle Ark: lite / mini / pro          ║
 ║   --prepare-only         Vérifier sans soumettre               ║
-║   --output-dir <DOSSIER> Dossier de sortie                     ║
+║   --output-dir <DOSSIER> Sortie (répertoire source si local)    ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║ Exemple :                                                       ║
-║   volc_auc_batch_client --api-key "ark-..." \                   ║
-║     --tos-ak "AKLT..." --tos-sk "..." --tos-bucket amamizu-oss \║
-║     --inputs "audio.m4a"                                        ║
+║   volc_auc_batch_client --provider ark --api-key "ark-..." \    ║
+║     --tos-ak "AKLT..." --tos-sk "..." --tos-bucket my-bucket \║
+║     --inputs "C:\Audio\exemple.m4a"                              ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║ --help pour la liste complète des paramètres                    ║
 ╚══════════════════════════════════════════════════════════════════╝
@@ -629,15 +629,15 @@ fn print_banner() {
 ║   --tos-sk <SK>          TOS Secret Key                        ║
 ║   --tos-bucket <NAME>    TOS bucket (default: amamizu-oss)      ║
 ║   --provider <NAME>      ark | las | volcengine | azure        ║
-║   --language <CODE>      Language (e.g. fr-FR, zh-CN)          ║
-║   --ark-model <NAME>     Ark model (default: lite)              ║
+║   --language <CODE>      Language (e.g. fr-FR, zh-CN, default auto)║
+║   --ark-model <NAME>     Ark model: lite / mini / pro            ║
 ║   --prepare-only         Check/convert without submitting       ║
-║   --output-dir <DIR>     Output directory                      ║
+║   --output-dir <DIR>     Output (same as source for local files) ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║ Example:                                                        ║
-║   volc_auc_batch_client --api-key "ark-..." \                   ║
-║     --tos-ak "AKLT..." --tos-sk "..." --tos-bucket amamizu-oss \║
-║     --inputs "audio.m4a"                                        ║
+║   volc_auc_batch_client --provider ark --api-key "ark-..." \    ║
+║     --tos-ak "AKLT..." --tos-sk "..." --tos-bucket my-bucket \║
+║     --inputs "C:\Audio\sample.m4a"                               ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║ --help for full parameter list                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
@@ -654,15 +654,15 @@ fn print_banner() {
 ║   --tos-sk <SK>          TOS Secret Key                        ║
 ║   --tos-bucket <NAME>    TOS 桶名 (默认: amamizu-oss)           ║
 ║   --provider <NAME>      ark | las | volcengine | azure        ║
-║   --language <CODE>      识别语言 (如 fr-FR, zh-CN)            ║
-║   --ark-model <NAME>     Ark 模型 (默认: lite)                  ║
+║   --language <CODE>      识别语言 (如 fr-FR, zh-CN, 默认 auto) ║
+║   --ark-model <NAME>     Ark 模型: lite / mini / pro            ║
 ║   --prepare-only         仅检查转换, 不提交                     ║
-║   --output-dir <DIR>     输出目录 (本地文件默认源目录)           ║
+║   --output-dir <DIR>     输出目录 (本地文件默认音频同目录输出)   ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║ 示例:                                                           ║
-║   volc_auc_batch_client --api-key "ark-..." \                   ║
-║     --tos-ak "AKLT..." --tos-sk "..." --tos-bucket amamizu-oss \║
-║     --inputs "audio.m4a"                                        ║
+║   volc_auc_batch_client --provider ark --api-key "ark-..." \    ║
+║     --tos-ak "AKLT..." --tos-sk "..." --tos-bucket my-bucket \║
+║     --inputs "E:\我的音频\示例音频.m4a"                           ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║ --help 查看完整参数列表                                         ║
 ╚══════════════════════════════════════════════════════════════════╝
@@ -745,83 +745,103 @@ fn dedup_overlap(prev: &str, next: &str) -> (String, usize) {
 
 async fn build_config(cli: Cli) -> Result<Config> {
     let theme = ColorfulTheme::default();
+    let is_interactive = cli.inputs.is_none();  // 无 --inputs = 交互模式
 
-    // --- 提供商 ---
-    let provider = match cli.provider.as_str() {
-        "azure" | "Azure" => Provider::Azure,
-        "las" | "LAS" | "las_asr_pro" => Provider::Las,
-        "ark" | "Ark" | "ARK" => Provider::Ark,
-        "volcengine" | "volc" => Provider::Volcengine,
-        "" | _ => Provider::Ark,
+    // === 第 1 步：选择提供商 ===
+    let provider = if is_interactive {
+        let providers = &[
+            "Ark 方舟 (doubao-seed-2-0-lite) ⭐推荐",
+            "LAS 算子 (las_asr_pro)",
+            "Volcengine bigmodel (openspeech)",
+            "Azure Speech-to-Text",
+        ];
+        let idx = Select::with_theme(&theme)
+            .with_prompt("选择语音识别提供商")
+            .items(providers)
+            .default(0)
+            .interact()?;
+        match idx {
+            1 => Provider::Las,
+            2 => Provider::Volcengine,
+            3 => Provider::Azure,
+            _ => Provider::Ark,
+        }
+    } else {
+        match cli.provider.as_str() {
+            "azure" | "Azure" => Provider::Azure,
+            "las" | "LAS" | "las_asr_pro" => Provider::Las,
+            "ark" | "Ark" | "ARK" => Provider::Ark,
+            "volcengine" | "volc" => Provider::Volcengine,
+            "" | _ => Provider::Ark,
+        }
     };
 
-    // --- API Key ---
+    // === 第 2 步：API Key ===
     let stored_key_path = PathBuf::from(DEFAULT_OUTPUT_DIR).join(".last_api_key");
     let stored_key = output::load_last_api_key_hint(&stored_key_path);
 
     let (api_key, azure_key, azure_region) =
         if provider == Provider::Azure {
-            // Azure 认证
             let az_key = match cli.azure_key {
                 Some(ref v) if !v.trim().is_empty() => v.clone(),
-                _ => {
-                    Input::<String>::with_theme(&theme)
-                        .with_prompt("请输入 Azure Subscription Key (Ocp-Apim-Subscription-Key)")
-                        .interact_text()?
-                }
+                _ => Input::<String>::with_theme(&theme)
+                    .with_prompt("Azure Subscription Key")
+                    .interact_text()?,
             };
             let az_region = match cli.azure_region {
                 Some(ref v) if !v.trim().is_empty() => v.clone(),
-                _ => {
-                    Input::<String>::with_theme(&theme)
-                        .with_prompt("请输入 Azure Region（如 eastasia, westeurope）")
-                        .default("eastasia".into())
-                        .interact_text()?
-                }
+                _ => Input::<String>::with_theme(&theme)
+                    .with_prompt("Azure Region（如 eastasia）")
+                    .default("eastasia".into())
+                    .interact_text()?,
             };
             (az_key.clone(), Some(az_key), Some(az_region))
         } else if provider == Provider::Las || provider == Provider::Ark {
-            // LAS / Ark 认证（Bearer Token）
-            let prompt = if provider == Provider::Ark { "请输入 Ark API Key" } else { "请输入 LAS API Key" };
-            let key = match cli.api_key {
-                Some(ref v) if !v.trim().is_empty() => v.clone(),
-                _ => {
-                    Input::<String>::with_theme(&theme)
-                        .with_prompt("请输入 LAS API Key（Bearer Token）")
-                        .interact_text()?
-                }
-            };
-            (key, None, None)
-        } else {
-            // 火山引擎认证
+            let label = if provider == Provider::Ark { "Ark API Key" } else { "LAS API Key" };
             let key = match cli.api_key {
                 Some(ref v) if !v.trim().is_empty() => v.clone(),
                 _ => {
                     if let Some(s) = stored_key.filter(|s| !s.is_empty()) {
-                        let use_stored = Confirm::with_theme(&theme)
-                            .with_prompt(format!(
-                                "使用上次的 API Key（{}...）？",
-                                &s[..s.len().min(8)]
-                            ))
-                            .default(true)
-                            .interact()
-                            .unwrap_or(true);
-                        if use_stored {
-                            s
-                        } else {
-                            Input::<String>::with_theme(&theme)
-                                .with_prompt("请输入 X-Api-Key")
-                                .interact_text()?
-                        }
-                    } else {
-                        Input::<String>::with_theme(&theme)
-                            .with_prompt("请输入 X-Api-Key")
-                            .interact_text()?
-                    }
+                        if Confirm::with_theme(&theme)
+                            .with_prompt(format!("使用上次的 API Key（{}...）？", &s[..s.len().min(8)]))
+                            .default(true).interact().unwrap_or(true) { s }
+                        else { Input::<String>::with_theme(&theme).with_prompt(format!("请输入 {label}")).interact_text()? }
+                    } else { Input::<String>::with_theme(&theme).with_prompt(format!("请输入 {label}")).interact_text()? }
+                }
+            };
+            (key, None, None)
+        } else {
+            let key = match cli.api_key {
+                Some(ref v) if !v.trim().is_empty() => v.clone(),
+                _ => {
+                    if let Some(s) = stored_key.filter(|s| !s.is_empty()) {
+                        if Confirm::with_theme(&theme)
+                            .with_prompt(format!("使用上次的 X-Api-Key（{}...）？", &s[..s.len().min(8)]))
+                            .default(true).interact().unwrap_or(true) { s }
+                        else { Input::<String>::with_theme(&theme).with_prompt("请输入 X-Api-Key").interact_text()? }
+                    } else { Input::<String>::with_theme(&theme).with_prompt("请输入 X-Api-Key").interact_text()? }
                 }
             };
             (key, None, None)
         };
+
+    // === 第 3 步：TOS 配置（Ark/LAS/Volcengine 本地文件上传需要）===
+    let (tos_ak, tos_sk, tos_bucket) = if provider != Provider::Azure && is_interactive {
+        if cli.tos_ak.is_some() { (cli.tos_ak, cli.tos_sk, cli.tos_bucket) }
+        else {
+            let ak = Input::<String>::with_theme(&theme)
+                .with_prompt("TOS Access Key（本地文件上传需要，回车跳过）")
+                .allow_empty(true).interact_text()?;
+            if ak.is_empty() { (None, None, cli.tos_bucket) }
+            else {
+                let sk = Input::<String>::with_theme(&theme)
+                    .with_prompt("TOS Secret Key").interact_text()?;
+                let bucket = Input::<String>::with_theme(&theme)
+                    .with_prompt("TOS 桶名").default("amamizu-oss".into()).interact_text()?;
+                (Some(ak), Some(sk), bucket)
+            }
+        }
+    } else { (cli.tos_ak, cli.tos_sk, cli.tos_bucket) };
 
     // --- Resource ID ---
     let resource_id = cli
@@ -902,9 +922,9 @@ async fn build_config(cli: Cli) -> Result<Config> {
         legacy_mode: cli.legacy_mode,
         app_key: cli.app_key,
         access_key: cli.access_key,
-        tos_ak: cli.tos_ak,
-        tos_sk: cli.tos_sk,
-        tos_bucket: cli.tos_bucket,
+        tos_ak,
+        tos_sk,
+        tos_bucket,
         tos_endpoint: cli.tos_endpoint,
         tos_region: cli.tos_region,
         tos_key_prefix: cli.tos_key_prefix,
