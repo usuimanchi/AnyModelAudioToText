@@ -381,11 +381,6 @@ impl TranscriptionBackend for LasBackend {
                 let srt_path = result_dir.join("result.srt");
                 fs::write(&srt_path, &srt)?;
                 println!("   📝 字幕已保存: {}", srt_path.display());
-
-                let formatted = build_formatted_text(utterances);
-                let fmt_path = result_dir.join("result_formatted.md");
-                fs::write(&fmt_path, &formatted)?;
-                println!("   📝 格式化文本已保存: {}", fmt_path.display());
             }
         }
 
@@ -519,79 +514,6 @@ async fn do_submit(
     Ok(JobHandle { id: task_id, query_url: None, provider: Provider::Las, operator_version: Some(operator_version.to_string()) })
 }
 
-/// 生成带时间戳和语言分段的格式化文本
-fn build_formatted_text(utterances: &[Value]) -> String {
-    let mut out = String::new();
-    out.push_str("# 转录结果\n\n");
-    out.push_str("> 标记说明: 🇨🇳中文 | 🇫🇷Français\n\n---\n\n");
-
-    let mut current_lang: Option<&str> = None;
-    let mut segment_start_ms: u64 = 0;
-    let mut segment_text = String::new();
-
-    for u in utterances {
-        let text = u.get("text").and_then(|t| t.as_str()).unwrap_or("");
-        let start = u.get("start_time").and_then(|t| t.as_u64()).unwrap_or(0);
-        let lang = detect_script(text);
-
-        if current_lang != Some(lang) {
-            // flush previous segment
-            if !segment_text.is_empty() {
-                let ts = format_timestamp_range(segment_start_ms, start);
-                let label = current_lang.unwrap_or("?");
-                let flag = if label == "zh" { "🇨🇳 中文" } else { "🇫🇷 Français" };
-                out.push_str(&format!("### {}  {}\n\n", ts, flag));
-                out.push_str(&segment_text.trim());
-                out.push_str("\n\n---\n\n");
-            }
-            current_lang = Some(lang);
-            segment_start_ms = start;
-            segment_text = String::new();
-        }
-        segment_text.push_str(text);
-        segment_text.push('\n');
-    }
-
-    // flush last segment
-    if !segment_text.is_empty() {
-        let end = utterances.last()
-            .and_then(|u| u.get("end_time"))
-            .and_then(|t| t.as_u64())
-            .unwrap_or(0);
-        let label = current_lang.unwrap_or("?");
-        let flag = if label == "zh" { "🇨🇳 中文" } else { "🇫🇷 Français" };
-        out.push_str(&format!("### {}  {}\n\n", format_timestamp_range(segment_start_ms, end), flag));
-        out.push_str(&segment_text.trim());
-        out.push_str("\n");
-    }
-
-    out
-}
-
-/// 检测文本主要语种（zh / fr / mixed）
-fn detect_script(text: &str) -> &'static str {
-    let mut cjk = 0usize;
-    let mut latin = 0usize;
-    for c in text.chars() {
-        if ('\u{4e00}'..='\u{9fff}').contains(&c)
-            || ('\u{3400}'..='\u{4dbf}').contains(&c)
-            || ('\u{3000}'..='\u{303f}').contains(&c)
-            || ('\u{ff00}'..='\u{ffef}').contains(&c)
-        {
-            cjk += 1;
-        } else if c.is_ascii_alphabetic() || "àâäéèêëîïôöùûüçœæÀÂÄÉÈÊËÎÏÔÖÙÛÜÇŒÆ".contains(c) {
-            latin += 1;
-        }
-    }
-    if cjk > latin { "zh" } else { "fr" }
-}
-
-fn format_timestamp_range(start_ms: u64, end_ms: u64) -> String {
-    let h = start_ms / 3_600_000;
-    let m = (start_ms % 3_600_000) / 60_000;
-    let s = (start_ms % 60_000) / 1000;
-    format!("[{:02}:{:02}:{:02}]", h, m, s)
-}
 
 fn build_srt(utterances: &[Value]) -> String {
     let mut srt = String::new();

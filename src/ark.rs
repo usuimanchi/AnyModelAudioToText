@@ -183,15 +183,6 @@ impl TranscriptionBackend for ArkBackend {
             fs::write(&txt_path, t)?;
             println!("   📝 文本已保存: {}", txt_path.display());
 
-            // SRT 字幕（Ark 不返回 utterances，从文本推算简单时间轴）
-            let srt = build_simple_srt(t);
-            let srt_path = result_dir.join("result.srt");
-            fs::write(&srt_path, &srt)?;
-
-            // 格式化文本（语言分段）
-            let formatted = build_formatted_text(t);
-            let fmt_path = result_dir.join("result_formatted.md");
-            fs::write(&fmt_path, &formatted)?;
         }
 
         Ok(JobHandle {
@@ -251,39 +242,3 @@ impl TranscriptionBackend for ArkBackend {
 // 后处理
 // ---------------------------------------------------------------------------
 
-fn build_simple_srt(text: &str) -> String {
-    let paragraphs: Vec<&str> = text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
-    let mut srt = String::new();
-    let secs_per_para = 15u64; // rough estimate
-    for (i, p) in paragraphs.iter().enumerate() {
-        let start = i as u64 * secs_per_para;
-        let end = start + secs_per_para;
-        let h = |ms: u64| format!("{:02}:{:02}:{:02},000", ms / 3600, (ms % 3600) / 60, ms % 60);
-        srt.push_str(&format!("{}\n{} --> {}\n{}\n\n", i + 1, h(start), h(end), p.trim()));
-    }
-    srt
-}
-
-fn build_formatted_text(text: &str) -> String {
-    let mut out = String::from("# 转录结果\n\n");
-    let paragraphs: Vec<&str> = text.split("\n\n").filter(|p| !p.trim().is_empty()).collect();
-    for p in paragraphs {
-        let lang = detect_lang(p);
-        let flag = if lang == "zh" { "🇨🇳 中文" } else { "🇫🇷 Français" };
-        out.push_str(&format!("### {}\n\n{}\n\n---\n\n", flag, p.trim()));
-    }
-    out
-}
-
-fn detect_lang(text: &str) -> &'static str {
-    let mut cjk = 0usize;
-    let mut latin = 0usize;
-    for c in text.chars() {
-        if ('\u{4e00}'..='\u{9fff}').contains(&c) || ('\u{3000}'..='\u{303f}').contains(&c) || ('\u{ff00}'..='\u{ffef}').contains(&c) {
-            cjk += 1;
-        } else if c.is_ascii_alphabetic() || "àâäéèêëîïôöùûüçœæÀÂÄÉÈÊËÎÏÔÖÙÛÜÇŒÆ".contains(c) {
-            latin += 1;
-        }
-    }
-    if cjk > latin { "zh" } else { "fr" }
-}
