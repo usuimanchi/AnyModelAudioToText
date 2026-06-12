@@ -823,7 +823,7 @@ async fn build_config(cli: Cli) -> Result<Config> {
 
     // 各提供商默认限制不同，用 types.rs 常量仅为 CLI 兜底
     let (max_duration_secs, max_size_bytes) = match provider {
-        Provider::Ark => (86400, 512 * 1024 * 1024),   // Files API: 512MB
+        Provider::Ark => (7200, 512 * 1024 * 1024),   // Files API: 512MB 但限制 2h/单文件
         Provider::Las => (u64::MAX, u64::MAX),          // LAS 算子不限
         _ => (7200, 25 * 1024 * 1024),                 // Volcengine/Azure: URL 方式 25MB/120min
     };
