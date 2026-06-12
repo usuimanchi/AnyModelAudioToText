@@ -32,6 +32,7 @@ mod input;
 mod las;
 mod output;
 
+mod tos_upload;
 mod types;
 mod volcengine;
 
@@ -357,6 +358,32 @@ async fn run_pipeline<B: TranscriptionBackend>(
             );
         }
 
+        // 2.5) LAS/Volcengine 本地文件需要上传到 TOS 获取 URL
+        if config.provider == Provider::Las || config.provider == Provider::Volcengine {
+            if let (Ok(ak), Ok(sk)) = (
+                std::env::var("TOS_ACCESS_KEY"),
+                std::env::var("TOS_SECRET_KEY"),
+            ) {
+                if !ak.is_empty() && !sk.is_empty() {
+                    if let Ok(uploader) = tos_upload::create_tos_uploader(
+                        &ak, &sk, "cn-beijing", "tos-cn-beijing.volces.com", "amamizu-oss",
+                    ) {
+                        for chunk in &mut prepared_chunks {
+                            if chunk.submission_url.is_some() { continue; }
+                            let name = chunk.path.file_name()
+                                .and_then(|n| n.to_str()).unwrap_or("audio.bin");
+                            let key = format!("las-audio/{name}");
+                            println!("   📤 上传到 TOS: {name}");
+                            match uploader.upload(&chunk.path, &key).await {
+                                Ok(url) => { println!("   │  ✅ {url}"); chunk.submission_url = Some(url); }
+                                Err(e) => println!("   │  ⚠️  {e}"),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 3) 筛选可提交片段（Ark 通过 Files API 上传，不需要预置 URL）
         let submittable: Vec<&PreparedChunk> = if config.provider == Provider::Ark {
             prepared_chunks.iter().collect()
@@ -371,7 +398,8 @@ async fn run_pipeline<B: TranscriptionBackend>(
 
         if submittable.is_empty() {
             if !audio_input.is_url {
-                println!("   ⚠️  本地文件无可提交的 URL，请使用 Ark 提供商以通过 Files API 提交。");
+                println!("   ⚠️  本地文件无可提交的 URL。");
+                println!("   💡 请使用 Ark 提供商（默认），或设置 TOS_ACCESS_KEY / TOS_SECRET_KEY 环境变量。");
             } else {
                 println!("   ⚠️  该输入为 URL，但音频需要转换/切分，无法用于提交已处理的本地副本。");
                 println!("   💡 建议使用 Ark 提供商（默认），通过 Files API 直接提交。");
