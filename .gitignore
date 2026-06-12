@@ -27,6 +27,9 @@ auc_bigmodel/
 /result/
 /auc_output/
 
+# Temp / task tracking
+.tmp/
+
 # Test artifacts
 test_audio/prepared/
 test_audio/download/

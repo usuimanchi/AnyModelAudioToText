@@ -308,15 +308,26 @@ pub async fn split_audio(
         return Err(anyhow!("无法获取音频时长，不能切分: {}", src.display()));
     }
 
+    // 递归深度 > 0 时加后缀，避免输出路径与输入路径碰撞
+    let depth_suffix = if depth > 0 { format!("_d{depth}") } else { String::new() };
     let base = cfg.output_dir
         .join("prepared")
-        .join(format!("{}_split", file_stem(src)));
+        .join(format!("{}_split{}", file_stem(src), depth_suffix));
     fs::create_dir_all(&base)?;
 
-    let segment_secs = cfg.max_duration_secs as f64;
+    // 按时长 + 体积双维度计算分段时长
+    let duration_segment_secs = cfg.max_duration_secs as f64;
+    let segment_secs = if meta.size_bytes > cfg.max_size_bytes {
+        let bytes_per_sec = meta.size_bytes as f64 / duration;
+        // 按目标体积反算最大时长，留 15% 安全余量
+        let size_based_secs = (cfg.max_size_bytes as f64 / bytes_per_sec * 0.85).floor();
+        size_based_secs.max(60.0).min(duration_segment_secs)
+    } else {
+        duration_segment_secs
+    };
     let overlap_secs = 10.0; // 每段尾部重叠 10 秒，为边界句子提供上下文
     let total_segments = (duration / segment_secs).ceil() as u32;
-    println!("   🔪 切分为最多 {} 段（每段 ≤ {} 秒，重叠 {} 秒）", total_segments, segment_secs, overlap_secs);
+    println!("   🔪 切分为最多 {} 段（每段 ≤ {:.0} 秒，重叠 {} 秒）", total_segments, segment_secs, overlap_secs);
 
     let pb = ProgressBar::new(total_segments as u64);
     pb.set_style(
