@@ -258,12 +258,12 @@ impl TranscriptionBackend for VolcengineBackend {
                     } else {
                         text_preview.to_string()
                     };
-                    println!(
+                    config.reporter.log(format!(
                         "   ✅ 完成  request_id={}  耗时={:.0}s  结果: {}",
                         &handle.id[..8],
                         elapsed.as_secs(),
                         preview
-                    );
+                    ));
                     let text = parsed.result.as_ref().and_then(|r| r.text.clone());
                     return Ok(TranscriptionOutput {
                         raw_json: serde_json::to_value(&parsed).unwrap_or(Value::Null),
@@ -273,17 +273,17 @@ impl TranscriptionBackend for VolcengineBackend {
                 Some(20000001) | Some(20000002) => {
                     if tries % 12 == 1 {
                         let elapsed = start_time.elapsed();
-                        println!(
+                        config.reporter.log(format!(
                             "   ⏳ 等待中  request_id={}  已等待 {:.0}s  tries={}",
                             &handle.id[..8],
                             elapsed.as_secs(),
                             tries
-                        );
+                        ));
                     }
                     sleep(Duration::from_secs(config.poll_interval_secs)).await;
                 }
                 Some(20000003) => {
-                    println!("   🔇 静音音频  request_id={}（未检测到人声）", &handle.id[..8]);
+                    config.reporter.warn(format!("   🔇 静音音频  request_id={}（未检测到人声）", &handle.id[..8]));
                     return Ok(TranscriptionOutput {
                         raw_json: serde_json::to_value(&parsed).unwrap_or(Value::Null),
                         text: None,
@@ -293,7 +293,7 @@ impl TranscriptionBackend for VolcengineBackend {
                     return Err(anyhow!("请求参数无效 (45000001): request_id={}", &handle.id[..8]));
                 }
                 Some(code @ 45000002) => {
-                    println!("   ⚠️  空音频 (45000002): request_id={}", &handle.id[..8]);
+                    config.reporter.warn(format!("   ⚠️  空音频 (45000002): request_id={}", &handle.id[..8]));
                     return Ok(TranscriptionOutput {
                         raw_json: serde_json::to_value(&parsed).unwrap_or(Value::Null),
                         text: None,
@@ -322,14 +322,14 @@ impl TranscriptionBackend for VolcengineBackend {
                 }
                 None => {
                     if parsed.result.is_some() {
-                        println!("   ✅ body 已有结果  request_id={}", &handle.id[..8]);
+                        config.reporter.log(format!("   ✅ body 已有结果  request_id={}", &handle.id[..8]));
                         let text = parsed.result.as_ref().and_then(|r| r.text.clone());
                         return Ok(TranscriptionOutput {
                             raw_json: serde_json::to_value(&parsed).unwrap_or(Value::Null),
                             text,
                         });
                     }
-                    println!("   ⚠️  状态未知，继续轮询  request_id={}", &handle.id[..8]);
+                    config.reporter.warn(format!("   ⚠️  状态未知，继续轮询  request_id={}", &handle.id[..8]));
                     sleep(Duration::from_secs(config.poll_interval_secs)).await;
                 }
             }
@@ -367,7 +367,7 @@ impl TranscriptionBackend for VolcengineBackend {
         if let Some(ref text) = extracted_text {
             let txt_path = result_dir.join("result.txt");
             fs::write(&txt_path, text)?;
-            println!("   📝 文本已保存: {}", txt_path.display());
+            config.reporter.log(format!("   📝 文本已保存: {}", txt_path.display()));
         }
 
         Ok(SubmittedTaskSummary {

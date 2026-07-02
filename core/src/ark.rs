@@ -91,7 +91,7 @@ pub fn extract_text_from_response(raw: &Value) -> Option<String> {
 }
 
 /// 通过 Files API 上传本地音频文件，返回 file_id
-async fn upload_to_files_api(client: &Client, api_key: &str, file_path: &Path) -> Result<String> {
+async fn upload_to_files_api(client: &Client, api_key: &str, file_path: &Path, reporter: &dyn crate::progress::ProgressReporter) -> Result<String> {
     let file_bytes = fs::read(file_path)
         .with_context(|| format!("读取文件失败: {}", file_path.display()))?;
 
@@ -141,7 +141,7 @@ async fn upload_to_files_api(client: &Client, api_key: &str, file_path: &Path) -
         .ok_or_else(|| anyhow!("Files API 未返回 file_id: {}", json))?
         .to_string();
 
-    println!("   │  ✅ file_id: {}", file_id);
+    reporter.log(format!("   │  ✅ file_id: {}", file_id));
     Ok(file_id)
 }
 
@@ -157,8 +157,8 @@ impl TranscriptionBackend for ArkBackend {
         chunk: &PreparedChunk,
     ) -> Result<JobHandle> {
         // 通过 Files API 上传音频，获取 file_id
-        println!("   📤 上传到 Files API: {}", chunk.path.display());
-        let file_id = upload_to_files_api(client, &config.api_key, &chunk.path).await?;
+        config.reporter.log(format!("   📤 上传到 Files API: {}", chunk.path.display()));
+        let file_id = upload_to_files_api(client, &config.api_key, &chunk.path, config.reporter.as_ref()).await?;
 
         let prompt = config
             .corpus_context
@@ -227,12 +227,12 @@ impl TranscriptionBackend for ArkBackend {
             .and_then(|t| t.as_u64())
             .unwrap_or(0);
 
-        println!(
+        config.reporter.log(format!(
             "   ✅ Ark 完成  耗时={:.0}s  tokens={}  结果: {}",
             elapsed.as_secs(),
             usage,
             preview
-        );
+        ));
 
         // Ark 是同步 API，submit 即完成，直接把结果存进去
         let handle_id = raw
@@ -251,7 +251,7 @@ impl TranscriptionBackend for ArkBackend {
         if let Some(ref t) = text {
             let txt_path = result_dir.join("result.txt");
             fs::write(&txt_path, t)?;
-            println!("   📝 文本已保存: {}", txt_path.display());
+            config.reporter.log(format!("   📝 文本已保存: {}", txt_path.display()));
         }
 
         Ok(JobHandle {

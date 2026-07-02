@@ -219,14 +219,14 @@ impl TranscriptionBackend for LasBackend {
             match do_submit(client, config, chunk, ver).await {
                 Ok(handle) => {
                     if ver != config.operator_version {
-                        println!("   ⚠️  v2 不可用，已自动回退 v1");
+                        config.reporter.warn("   ⚠️  v2 不可用，已自动回退 v1".to_string());
                     }
                     return Ok(handle);
                 }
                 Err(e) => {
                     let err_msg = format!("{e}");
                     if err_msg.contains("InvalidId") && ver == "v2" {
-                        println!("   ⚠️  v2 不被支持，尝试 v1...");
+                        config.reporter.warn("   ⚠️  v2 不被支持，尝试 v1...".to_string());
                         last_error = Some(e);
                         continue;
                     }
@@ -303,12 +303,12 @@ impl TranscriptionBackend for LasBackend {
                         text_preview.to_string()
                     };
 
-                    println!(
+                    config.reporter.log(format!(
                         "   ✅ LAS 任务完成  task_id={}  耗时={:.0}s  结果: {}",
                         &handle.id[..16.min(handle.id.len())],
                         elapsed.as_secs(),
                         preview
-                    );
+                    ));
 
                     return Ok(TranscriptionOutput {
                         raw_json: serde_json::to_value(&poll_resp).unwrap_or(Value::Null),
@@ -318,12 +318,12 @@ impl TranscriptionBackend for LasBackend {
                 "PENDING" | "RUNNING" | "PROCESSING" => {
                     if tries % 12 == 1 {
                         let elapsed = start.elapsed();
-                        println!(
+                        config.reporter.log(format!(
                             "   ⏳ 等待中  task_id={}  已等待 {:.0}s  status={}",
                             &handle.id[..16.min(handle.id.len())],
                             elapsed.as_secs(),
                             task_status
-                        );
+                        ));
                     }
                     sleep(poll_interval).await;
                 }
@@ -339,11 +339,11 @@ impl TranscriptionBackend for LasBackend {
                         // 30 分钟超时
                         return Err(anyhow!("LAS 轮询超时: 未知状态 '{}'", task_status));
                     }
-                    println!(
+                    config.reporter.warn(format!(
                         "   ⚠️  未知状态，继续轮询  task_id={}  status={}",
                         &handle.id[..16.min(handle.id.len())],
                         task_status
-                    );
+                    ));
                     sleep(poll_interval).await;
                 }
             }
@@ -365,7 +365,7 @@ impl TranscriptionBackend for LasBackend {
         if let Some(ref text) = output.text {
             let txt_path = result_dir.join("result.txt");
             fs::write(&txt_path, text)?;
-            println!("   📝 文本已保存: {}", txt_path.display());
+            config.reporter.log(format!("   📝 文本已保存: {}", txt_path.display()));
         }
 
         // SRT + 格式化文本（分段 + 时间戳）
@@ -380,7 +380,7 @@ impl TranscriptionBackend for LasBackend {
                 let srt = build_srt(utterances);
                 let srt_path = result_dir.join("result.srt");
                 fs::write(&srt_path, &srt)?;
-                println!("   📝 字幕已保存: {}", srt_path.display());
+                config.reporter.log(format!("   📝 字幕已保存: {}", srt_path.display()));
             }
         }
 
@@ -510,7 +510,7 @@ async fn do_submit(
     let task_id = submit_resp.metadata.task_id
         .ok_or_else(|| anyhow!("LAS 提交响应中无 task_id: error_msg={:?}", submit_resp.metadata.error_msg))?;
 
-    println!("   ✅ LAS 任务已提交  task_id={}", &task_id[..16.min(task_id.len())]);
+    config.reporter.log(format!("   ✅ LAS 任务已提交  task_id={}", &task_id[..16.min(task_id.len())]));
     Ok(JobHandle { id: task_id, query_url: None, provider: Provider::Las, operator_version: Some(operator_version.to_string()) })
 }
 

@@ -285,7 +285,7 @@ impl TranscriptionBackend for AzureBackend {
             .next()
             .ok_or_else(|| anyhow!("无法从 self URL 中解析 job ID: {self_url}"))?;
 
-        println!("   ✅ Azure 任务已提交  job_id={}", job_id);
+        config.reporter.log(format!("   ✅ Azure 任务已提交  job_id={}", job_id));
 
         Ok(JobHandle {
             id: job_id.to_string(),
@@ -347,11 +347,11 @@ impl TranscriptionBackend for AzureBackend {
             match status {
                 "Succeeded" => {
                     let elapsed = start.elapsed();
-                    println!(
+                    config.reporter.log(format!(
                         "   ✅ Azure 任务完成  job_id={}  耗时={:.0}s",
                         &handle.id[..16],
                         elapsed.as_secs()
-                    );
+                    ));
 
                     // 获取 files 链接
                     let files_url = raw
@@ -373,12 +373,12 @@ impl TranscriptionBackend for AzureBackend {
                 "NotStarted" | "Running" => {
                     if tries % 12 == 1 {
                         let elapsed = start.elapsed();
-                        println!(
+                        config.reporter.log(format!(
                             "   ⏳ 等待中  job_id={}  已等待 {:.0}s  status={}",
                             &handle.id[..16],
                             elapsed.as_secs(),
                             status
-                        );
+                        ));
                     }
                     sleep(poll_interval).await;
                 }
@@ -410,14 +410,14 @@ impl TranscriptionBackend for AzureBackend {
         if let Some(ref text) = output.text {
             let txt_path = result_dir.join("result.txt");
             fs::write(&txt_path, text)?;
-            println!("   📝 文本已保存: {}", txt_path.display());
+            config.reporter.log(format!("   📝 文本已保存: {}", txt_path.display()));
         }
 
         // 多语言映射
         if let Some(locale_map) = extract_locale_map(&output.raw_json) {
             let lang_path = result_dir.join("language_map.json");
             fs::write(&lang_path, serde_json::to_vec_pretty(&locale_map)?)?;
-            println!("   🌐 语言分布已保存: {}", lang_path.display());
+            config.reporter.log(format!("   🌐 语言分布已保存: {}", lang_path.display()));
         }
 
         Ok(SubmittedTaskSummary {
