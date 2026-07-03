@@ -39,3 +39,5 @@ src-tauri/binaries/
 src-tauri/gen/
 src-tauri/node_modules/
 src-tauri/package-lock.json
+/dist/
+/docs/
