@@ -114,18 +114,21 @@ jobs:
         with:
           path: artifacts
 
-      - name: 重命名 zip 并预览内容
+      - name: 打包为 zip
         run: |
           VERSION="${{ github.ref_name }}"
           cd artifacts
-          ls -la
-          # artifact 按文件夹名下载，内容在子目录
-          find . -type f | head -20
-          # 重新打包为带版本号的 zip
-          zip -r "../AnyModelAudioToText-${VERSION}-windows.zip" windows-dist/
-          zip -r "../AnyModelAudioToText-${VERSION}-macos-arm64.zip" macos-dist/
-          echo "Generated:"
-          ls -la ../*.zip
+          for d in */; do
+            dirname=$(basename "$d")
+            case "$dirname" in
+              windows-dist) newname="AnyModelAudioToText-${VERSION}-windows" ;;
+              macos-dist)   newname="AnyModelAudioToText-${VERSION}-macos-arm64" ;;
+              *)            continue ;;
+            esac
+            mv "$dirname" "$newname"
+            zip -r "${newname}.zip" "$newname"
+            echo "Created: ${newname}.zip ($(stat -c%s "${newname}.zip") bytes)"
+          done
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v2
@@ -137,14 +140,15 @@ jobs:
 
             ### 下载
 
-            **Windows 用户**：下载 `AnyModelAudioToText-*-windows.zip`，解压后双击 `doubao-transcriber.exe`。ffmpeg 首次运行时会自动下载。
+            **Windows** → 下载 `AnyModelAudioToText-*-windows.zip`，解压双击 `doubao-transcriber.exe`
 
-            **Mac 用户**：下载 `AnyModelAudioToText-*-macos-arm64.zip`，解压后运行 `./doubao-transcriber`。ffmpeg 首次运行时会自动下载（或 `brew install ffmpeg`）。
+            **Mac** → 下载 `AnyModelAudioToText-*-macos-arm64.zip`，解压运行 `./doubao-transcriber`
+
+            > ffmpeg 首次运行时会自动下载。国内用户自动走清华镜像源。
 
             ---
-            📦 最新版始终在此: https://github.com/usuimanchi/AnyModelAudioToText/releases/latest
-          files: |
-            AnyModelAudioToText-*.zip
+            [📦 Latest Release](https://github.com/usuimanchi/AnyModelAudioToText/releases/latest)
+          files: artifacts/*.zip
           draft: false
           prerelease: false
         env:
