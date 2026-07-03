@@ -70,6 +70,11 @@ frontend/      — 纯静态前端（HTML/JS/CSS）
 
 ---
 
+## 文档
+
+- [使用手册](USAGE.md) — GUI / CLI 详细说明
+- [更新说明](CHANGELOG.md) — 版本变更记录
+
 ## License
 
 MIT

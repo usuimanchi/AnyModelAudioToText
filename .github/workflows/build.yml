@@ -47,15 +47,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $PKG_DIR
           Copy-Item target/release/volc_auc_batch_client.exe $PKG_DIR/
           Copy-Item target/release/doubao-transcriber.exe $PKG_DIR/
-          @"
-          使用方法
-          ========
-          1. 双击 doubao-transcriber.exe 启动图形界面
-          2. 粘贴 API Key（以 ark- 开头）
-          3. 拖拽音频文件到窗口，点击开始转写
-
-          ffmpeg：首次运行时会自动下载，无需手动安装。
-          "@ | Out-File $PKG_DIR/README.txt -Encoding utf8
+          Copy-Item USAGE.md $PKG_DIR/
+          Copy-Item CHANGELOG.md $PKG_DIR/
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
@@ -96,15 +89,8 @@ jobs:
           mkdir -p "$PKG_DIR"
           cp target/release/volc_auc_batch_client "$PKG_DIR/"
           cp target/release/doubao-transcriber "$PKG_DIR/"
-          cat > "$PKG_DIR/README.txt" <<'EOF'
-          使用方法
-          ========
-          1. 终端运行 ./doubao-transcriber 启动图形界面
-          2. 粘贴 API Key
-          3. 拖拽音频文件到窗口，点击开始转写
-
-          ffmpeg：首次运行时会自动下载（或 brew install ffmpeg）。
-          EOF
+          cp USAGE.md "$PKG_DIR/"
+          cp CHANGELOG.md "$PKG_DIR/"
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
