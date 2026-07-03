@@ -46,10 +46,16 @@ jobs:
           New-Item -ItemType Directory -Force -Path $PKG_DIR
           Copy-Item target/release/volc_auc_batch_client.exe $PKG_DIR/
           Copy-Item target/release/doubao-transcriber.exe $PKG_DIR/
-          Copy-Item dist/使用手册.txt $PKG_DIR/
-          Copy-Item dist/更新说明.txt $PKG_DIR/
-          # ffmpeg 提示（用户需自行放入同目录，或启动时自动下载）
-          "# ffmpeg not bundled - run app once and it will auto-download" | Out-File $PKG_DIR/ffmpeg说明.txt -Encoding utf8
+          @"
+          使用方法
+          ========
+          1. 双击 doubao-transcriber.exe 启动图形界面
+          2. 粘贴 API Key（以 ark- 开头）
+          3. 拖拽音频文件到窗口，点击开始转写
+          4. 也可在终端运行 volc_auc_batch_client.exe --help 使用命令行
+
+          ffmpeg：首次运行时会自动下载，无需手动安装。
+          "@ | Out-File $PKG_DIR/README.txt -Encoding utf8
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
@@ -93,10 +99,16 @@ jobs:
           mkdir -p "$PKG_DIR"
           cp target/release/volc_auc_batch_client "$PKG_DIR/"
           cp target/release/doubao-transcriber "$PKG_DIR/"
-          cp dist/使用手册.txt "$PKG_DIR/"
-          cp dist/更新说明.txt "$PKG_DIR/"
-          # Mac 用户需 brew install ffmpeg 或启动时自动下载
-          echo "Mac 用户首次运行时会自动引导安装 ffmpeg。或自行运行: brew install ffmpeg" > "$PKG_DIR/ffmpeg说明.txt"
+          cat > "$PKG_DIR/README.txt" <<'EOF'
+          使用方法
+          ========
+          1. 终端运行 ./doubao-transcriber 启动图形界面
+          2. 粘贴 API Key
+          3. 拖拽音频文件到窗口，点击开始转写
+          4. 也可运行 ./volc_auc_batch_client --help 使用命令行
+
+          ffmpeg：首次运行时会自动下载（或 brew install ffmpeg）。
+          EOF
 
       - name: 上传产物
         uses: actions/upload-artifact@v4
