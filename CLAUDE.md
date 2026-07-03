@@ -1,16 +1,16 @@
 # CLAUDE.md
 
+## 开发流程（Trunk-Based）
+
+日常开发在 `main` 分支。发版时打 tag 推送，CI 自动构建并创建 Release。
+
 ## 版本发布流程
 
-每次更新代码后发布新版本时：
-
-1. **更新 `dist/更新说明.txt`** — 面向用户，说明新增/变更/修复的功能，不提技术细节
+1. **更新 `CHANGELOG.md`** — 面向用户，说明新增/变更/修复的功能
 2. **更新 `Cargo.toml`** workspace 版本号
-3. **打 git tag**（如 `v0.3.0`）
-4. **`cargo build --release -p volc_auc_batch_client`** — 编译 CLI
-5. **复制 CLI 到 dist**：`cp target/release/volc_auc_batch_client.exe dist/`
-6. **`tauri build`**（在 `src-tauri/` 目录）— 编译 GUI（Windows: .exe + nsis；Mac: .app）
-7. **更新 `dist/使用手册.txt`** — 如果 CLI 参数或默认值变化
+3. **打 git tag**（如 `v0.4.0`）
+4. **`git push --tags`** — CI 自动构建 Windows + Mac，创建 GitHub Release
+5. 验证 **https://github.com/usuimanchi/AnyModelAudioToText/releases/latest**
 
 ## 提供商命名
 
@@ -43,18 +43,19 @@ DoubaoAudioToText/
 │   └── binaries/           # ffmpeg/ffprobe (gitignored)
 ├── frontend/               # Tauri 前端（纯静态 HTML/JS/CSS）
 │   └── index.html  app.js  style.css
-└── dist/                   # 发布文件（CLI exe、ffmpeg.exe/ffprobe.exe、使用手册、更新说明）
+├── USAGE.md                 # 使用手册（GitHub 渲染，CI 打包为 .txt）
+├── CHANGELOG.md              # 更新说明
+└── dist/                     # 本地构建产物（gitignored，CI 自动发布）
 ```
 
 ## 构建
 
 ```bash
-# CLI（Windows / Mac / Linux）
+# CLI
 cargo build --release -p volc_auc_batch_client
 
-# Tauri GUI（需 node.js + npm，先安装 tauri-cli）
-npm install -g @tauri-apps/cli
-cd src-tauri && npm install && tauri build
+# GUI
+cargo build --release -p doubao-transcriber
 ```
 
 ## 进度上报抽象
