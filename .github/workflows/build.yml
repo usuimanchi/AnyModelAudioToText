@@ -21,20 +21,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
       - name: 安装 Rust MSVC
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-
-      - name: 下载 ffmpeg (Windows)
-        shell: pwsh
-        run: |
-          curl -Lo ffmpeg-essentials.zip https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip
-          Expand-Archive ffmpeg-essentials.zip -DestinationPath ffmpeg-temp
-          Copy-Item (Get-ChildItem -Path ffmpeg-temp -Filter ffmpeg.exe -Recurse).FullName src-tauri/binaries/ffmpeg.exe
-          Copy-Item (Get-ChildItem -Path ffmpeg-temp -Filter ffprobe.exe -Recurse).FullName src-tauri/binaries/ffprobe.exe
 
       - name: 构建 CLI
         run: cargo build --release -p volc_auc_batch_client
@@ -48,7 +40,7 @@ jobs:
       - name: 构建 Windows GUI
         run: |
           cd src-tauri
-          npm install
+          npm init -y
           npx tauri build
 
       - name: 复制 GUI 到 dist
@@ -56,7 +48,7 @@ jobs:
           cp target/release/doubao-transcriber.exe dist/
           cp target/release/bundle/msi/*.msi dist/ 2>$null || true
 
-      - name: 上传 dist 产物
+      - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
           name: windows-dist
@@ -73,7 +65,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
 
       - name: 安装 Rust 目标
         uses: dtolnay/rust-toolchain@stable
@@ -85,37 +77,26 @@ jobs:
         with:
           node-version: 22
 
-      - name: 下载并合并 Universal ffmpeg
-        run: |
-          # 从 BtbN/FFmpeg-Builds 下载 macOS 静态构建
-          FFMPEG_RELEASE_URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-macos-universal.zip"
-          curl -Lo ffmpeg-universal.zip "$FFMPEG_RELEASE_URL"
-          unzip -o ffmpeg-universal.zip -d ffmpeg-universal
-          cp ffmpeg-universal/ffmpeg-macos-universal/bin/ffmpeg src-tauri/binaries/ffmpeg
-          cp ffmpeg-universal/ffmpeg-macos-universal/bin/ffprobe src-tauri/binaries/ffprobe
-          chmod +x src-tauri/binaries/ffmpeg src-tauri/binaries/ffprobe
-          lipo -info src-tauri/binaries/ffmpeg
-
-      - name: 构建 Mac Universal CLI
-        run: cargo build --release -p volc_auc_batch_client --target universal-apple-darwin
+      - name: 构建 Mac ARM64 CLI
+        run: cargo build --release -p volc_auc_batch_client
 
       - name: 复制 CLI 到 dist
-        run: cp target/universal-apple-darwin/release/volc_auc_batch_client dist/
+        run: cp target/release/volc_auc_batch_client dist/
 
       - name: 安装 Tauri CLI
         run: npm install -g @tauri-apps/cli@latest
 
-      - name: 构建 Mac Universal GUI
+      - name: 构建 Mac GUI
         run: |
           cd src-tauri
-          npm install
-          npx tauri build --target universal-apple-darwin
+          npm init -y
+          npx tauri build
 
       - name: 复制 .app 到 dist
         run: |
-          cp -R target/universal-apple-darwin/release/bundle/macos/豆包语音转文字.app dist/ 2>/dev/null || true
+          cp -R target/release/bundle/macos/豆包语音转文字.app dist/ 2>/dev/null || echo "no .app found"
 
-      - name: 上传 Mac 产物
+      - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
           name: macos-dist
