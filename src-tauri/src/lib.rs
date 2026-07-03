@@ -89,9 +89,9 @@ fn build_config_from_input(
     let api_key = input.api_key.clone().unwrap_or_default();
 
     // 输出目录：用户指定 > 桌面 > 文档 > 当前目录
-    let default_out_dir = if let Ok(desktop) = dirs_next::desktop_dir() {
+    let default_out_dir = if let Some(desktop) = dirs_next::desktop_dir() {
         desktop.join("音频转写结果")
-    } else if let Ok(docs) = dirs_next::document_dir() {
+    } else if let Some(docs) = dirs_next::document_dir() {
         docs.join("音频转写结果")
     } else {
         PathBuf::from("./结果")
