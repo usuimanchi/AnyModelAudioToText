@@ -3,7 +3,7 @@ members = ["core", "cli", "src-tauri"]
 resolver = "2"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.3"
 edition = "2021"
 authors = ["Amamizu"]
 description = "多提供商语音转文本批量客户端 —— CLI + Tauri GUI"
